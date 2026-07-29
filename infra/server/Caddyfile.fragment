@@ -1,5 +1,5 @@
 # BEGIN CPI ARTIFACTS
-# Services are discovered through the shared cpi-crm-production_frontend network.
+# Services are discovered through the isolated cpi-artifacts-caddy network.
 __ARTIFACTS_DOMAIN__ {
 	encode zstd gzip
 
@@ -12,8 +12,7 @@ __ARTIFACTS_DOMAIN__ {
 	}
 
 	handle /health/api/* {
-		uri strip_prefix /health/api
-		rewrite * /health{uri}
+		uri replace /health/api /health
 		reverse_proxy artifacts-api:3001
 	}
 

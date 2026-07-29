@@ -104,16 +104,25 @@ openssl rand -hex 32
 Production Compose:
 
 ```bash
+set -a
+. infra/server/.env
+set +a
+./scripts/install-caddy-fragment.sh \
+  infra/server/Caddyfile.fragment \
+  /opt/CPI-CRM-MVP/infra/server/Caddyfile \
+  cpi-crm-production-caddy-1 \
+  cpi-artifacts-caddy
 docker compose \
   --env-file infra/server/.env \
   -f infra/server/docker-compose.yml \
   up -d --build
 ```
 
-Он не публикует служебные порты и подключает `web`, `api`, `bot` и `minio` к внешней
-Caddy-сети `cpi-crm-production_frontend`. Блоки reverse proxy находятся в
-`infra/server/Caddyfile.fragment`. Если на хосте используется отдельный Nginx, можно
-адаптировать `infra/nginx/nginx.conf`.
+Скрипт идемпотентно создаёт отдельную внешнюю сеть `cpi-artifacts-caddy`, подключает к
+ней действующий Caddy и устанавливает либо обновляет reverse proxy блок. Отдельная
+сеть предотвращает коллизии коротких имён `web`, `api` и `minio` с другими Compose
+проектами на том же сервере. Служебные порты наружу не публикуются. Если на хосте
+используется отдельный Nginx, можно адаптировать `infra/nginx/nginx.conf`.
 
 ### HTTPS и Telegram
 

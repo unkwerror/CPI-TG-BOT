@@ -303,7 +303,7 @@ networks:
     internal: true
   caddy:
     external: true
-    name: cpi-crm-production_frontend
+    name: cpi-artifacts-caddy
 
 volumes:
   postgres_data:
