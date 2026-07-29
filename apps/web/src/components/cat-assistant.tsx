@@ -41,7 +41,14 @@ export function CatAssistant({
       </div>
       <div className="cat-assistant__art" aria-hidden="true">
         <span className="cat-assistant__halo" />
+        <span className="cat-assistant__ground" />
         <span className="cat-assistant__orbit">
+          <i />
+          <i />
+          <i />
+        </span>
+        <span className="cat-assistant__particles">
+          <i />
           <i />
           <i />
           <i />
@@ -64,15 +71,32 @@ export function CatAssistant({
             <i />
           </span>
         ) : null}
+        {mood === 'talk' ? (
+          <span className="cat-assistant__voice-waves">
+            <i />
+            <i />
+            <i />
+          </span>
+        ) : null}
+        {mood === 'upload' ? (
+          <span className="cat-assistant__file-flow">
+            <i />
+            <i />
+            <i />
+          </span>
+        ) : null}
         {mood === 'sleep' ? (
           <span className="cat-assistant__sleep-marks">
             <i>z</i>
             <i>z</i>
             <i>z</i>
+            <i>☾</i>
           </span>
         ) : null}
         {mood === 'success' ? (
           <span className="cat-assistant__sparkles">
+            <i>✦</i>
+            <i>✦</i>
             <i>✦</i>
             <i>✦</i>
             <i>✦</i>

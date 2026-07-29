@@ -41,6 +41,12 @@ export const UserIcon = (properties: SVGProps<SVGSVGElement>) => (
   </Icon>
 );
 
+export const PhoneIcon = (properties: SVGProps<SVGSVGElement>) => (
+  <Icon {...properties}>
+    <path d="M7.2 3.6 9.3 7a1.4 1.4 0 0 1-.2 1.7L7.7 10a15.5 15.5 0 0 0 6.3 6.3l1.3-1.4a1.4 1.4 0 0 1 1.7-.2l3.4 2.1a1.4 1.4 0 0 1 .6 1.6l-.5 2A2.1 2.1 0 0 1 18.4 22C9.3 21.4 2.6 14.7 2 5.6a2.1 2.1 0 0 1 1.6-2.1l2-.5a1.4 1.4 0 0 1 1.6.6Z" />
+  </Icon>
+);
+
 export const SearchIcon = (properties: SVGProps<SVGSVGElement>) => (
   <Icon {...properties}>
     <circle cx="11" cy="11" r="7" />

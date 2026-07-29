@@ -102,6 +102,7 @@ declare global {
         ready(): void;
         expand(): void;
         close(): void;
+        requestContact?(callback?: (shared: boolean) => void): void;
         enableClosingConfirmation?(): void;
         disableClosingConfirmation?(): void;
         HapticFeedback?: {

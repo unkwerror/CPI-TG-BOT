@@ -64,6 +64,29 @@ if (bot) {
       { reply_markup: new InlineKeyboard().webApp('Открыть приложение', webAppUrl()) },
     );
   });
+  bot.on('message:contact', async (context) => {
+    const sender = context.from;
+    const contact = context.message.contact;
+    if (!sender || contact.user_id !== sender.id) {
+      await context.reply('Можно сохранить только ваш собственный номер Telegram.');
+      return;
+    }
+    const digits = contact.phone_number.replace(/\D/g, '').slice(0, 32);
+    if (!digits) {
+      await context.reply('Telegram не передал номер. Введите его вручную в профиле.');
+      return;
+    }
+    const [updated] = await db
+      .update(users)
+      .set({ phone: `+${digits}`, lastSeenAt: new Date() })
+      .where(eq(users.telegramUserId, BigInt(sender.id)))
+      .returning({ id: users.id });
+    if (!updated) {
+      await context.reply('Сначала откройте приложение и начните регистрацию.');
+      return;
+    }
+    await context.reply('Номер получен и добавлен в ваш профиль.');
+  });
   bot.catch((error) => logger.error({ error: error.error }, 'Telegram update failed'));
 
   notificationWorker = new Worker(

@@ -12,6 +12,17 @@ function randomToken(bytes = 32): string {
   return randomBytes(bytes).toString('base64url');
 }
 
+function sessionCookieOptions(app: Parameters<FastifyPluginAsync>[0]) {
+  const isProduction = app.config.NODE_ENV === 'production';
+  return {
+    path: '/',
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: isProduction ? ('none' as const) : ('lax' as const),
+    ...(app.config.COOKIE_DOMAIN ? { domain: app.config.COOKIE_DOMAIN } : {}),
+  };
+}
+
 export async function loadAuthenticatedUser(
   database: Parameters<FastifyPluginAsync>[0]['db'],
   userId: string,
@@ -68,12 +79,8 @@ export async function createSession(
     app.config.SESSION_TTL_SECONDS,
   );
   const cookieOptions = {
-    path: '/',
-    httpOnly: true,
-    secure: app.config.NODE_ENV === 'production',
-    sameSite: 'lax' as const,
+    ...sessionCookieOptions(app),
     maxAge: app.config.SESSION_TTL_SECONDS,
-    ...(app.config.COOKIE_DOMAIN ? { domain: app.config.COOKIE_DOMAIN } : {}),
   };
   reply.setCookie(app.config.SESSION_COOKIE_NAME, session.id, cookieOptions);
   return session;
@@ -161,5 +168,5 @@ export async function destroySession(
   sessionId: string | undefined,
 ): Promise<void> {
   if (sessionId) await app.redis.del(sessionKey(sessionId));
-  reply.clearCookie(app.config.SESSION_COOKIE_NAME, { path: '/' });
+  reply.clearCookie(app.config.SESSION_COOKIE_NAME, sessionCookieOptions(app));
 }
