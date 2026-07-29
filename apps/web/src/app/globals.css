@@ -2437,6 +2437,88 @@ h2 {
   background: var(--surface-muted);
 }
 
+.generated-identifiers {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.generated-identifiers > div {
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--pastel-sky);
+}
+
+.generated-identifiers span,
+.generated-identifiers code {
+  display: block;
+}
+
+.generated-identifiers span {
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.generated-identifiers code {
+  overflow: hidden;
+  color: var(--link);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timezone-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--primary) 20%, var(--border));
+  border-radius: 11px;
+  background: var(--pastel-mint);
+}
+
+.timezone-banner strong {
+  color: var(--link);
+  font-size: 13px;
+}
+
+.timezone-banner span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.datetime-field {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--pastel-lilac) 48%, var(--surface));
+}
+
+.datetime-field legend {
+  padding: 0 5px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.datetime-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.datetime-field small {
+  display: block;
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
 .admin-wide {
   grid-column: 1 / -1;
 }
@@ -2530,6 +2612,16 @@ h2 {
 
   .admin-wide {
     grid-column: auto;
+  }
+
+  .generated-identifiers,
+  .datetime-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .timezone-banner {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .admin-toolbar,

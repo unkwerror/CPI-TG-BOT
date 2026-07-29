@@ -4,6 +4,7 @@ import Image from 'next/image';
 import { useEffect, useState } from 'react';
 import { Button, Card, Spinner } from '@cpi/ui';
 import { api } from '../lib/api';
+import { NOVOSIBIRSK_LABEL, formatNovosibirskDateTime } from '../lib/dates';
 import type { EventItem } from '../lib/types';
 import { ArrowIcon, CalendarIcon, FilesIcon, UploadIcon, UserIcon } from './icons';
 import { CatAssistant } from './cat-assistant';
@@ -170,11 +171,6 @@ function EventDetail({
   onBack: () => void;
   onAdd: () => void;
 }) {
-  const dateFormatter = new Intl.DateTimeFormat('ru-RU', {
-    dateStyle: 'long',
-    timeStyle: 'short',
-    timeZone: event.timezone,
-  });
   return (
     <section className="screen event-detail">
       <button className="text-button back-button" type="button" onClick={onBack}>
@@ -203,7 +199,19 @@ function EventDetail({
       <Card className="detail-grid">
         <div>
           <span>Начало</span>
-          <strong>{dateFormatter.format(new Date(event.startsAt))}</strong>
+          <strong>{formatNovosibirskDateTime(event.startsAt)}</strong>
+        </div>
+        <div>
+          <span>Окончание</span>
+          <strong>{formatNovosibirskDateTime(event.endsAt)}</strong>
+        </div>
+        <div>
+          <span>Приём материалов с</span>
+          <strong>{formatNovosibirskDateTime(event.acceptUploadsFrom)}</strong>
+        </div>
+        <div>
+          <span>Приём материалов до</span>
+          <strong>{formatNovosibirskDateTime(event.acceptUploadsUntil)}</strong>
         </div>
         <div>
           <span>Место</span>
@@ -216,6 +224,10 @@ function EventDetail({
         <div>
           <span>Лимит файла</span>
           <strong>{Math.round(event.maxFileSizeBytes / 1024 ** 2)} МБ</strong>
+        </div>
+        <div>
+          <span>Часовой пояс</span>
+          <strong>{NOVOSIBIRSK_LABEL}</strong>
         </div>
       </Card>
       <CatAssistant

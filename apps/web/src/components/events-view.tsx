@@ -4,18 +4,10 @@ import Image from 'next/image';
 import { useEffect, useMemo, useState } from 'react';
 import { Card } from '@cpi/ui';
 import { api } from '../lib/api';
+import { formatNovosibirskDate } from '../lib/dates';
 import type { EventItem } from '../lib/types';
 import { CatAssistant, type CatMood } from './cat-assistant';
 import { ArrowIcon, SearchIcon } from './icons';
-
-function dateLabel(value: string, timezone: string): string {
-  return new Intl.DateTimeFormat('ru-RU', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-    timeZone: timezone,
-  }).format(new Date(value));
-}
 
 function statusLabel(event: EventItem): string {
   if (event.acceptsUploads) return 'Принимает материалы';
@@ -166,7 +158,7 @@ export function EventsView({
                 </div>
                 <h2>{event.title}</h2>
                 <p className="event-meta">
-                  {dateLabel(event.startsAt, event.timezone)}
+                  {formatNovosibirskDate(event.startsAt)}
                   {event.city ? ` · ${event.city}` : ''}
                 </p>
                 <p className="event-description">{event.description ?? event.organizer}</p>

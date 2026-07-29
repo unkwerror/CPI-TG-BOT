@@ -3,8 +3,25 @@
 import Image from 'next/image';
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Button, Card, Spinner } from '@cpi/ui';
-import type { ArtifactStatus, EventFormat, EventStatus, ExportKind } from '@cpi/shared';
+import {
+  eventShortCodeFromTitle,
+  eventSlugFromTitle,
+  type ArtifactStatus,
+  type EventFormat,
+  type EventStatus,
+  type ExportKind,
+} from '@cpi/shared';
 import { api } from '../lib/api';
+import {
+  NOVOSIBIRSK_LABEL,
+  NOVOSIBIRSK_TIME_ZONE,
+  addHoursToNovosibirskInput,
+  formatNovosibirskDate,
+  formatNovosibirskDateTime,
+  fromNovosibirskInput,
+  novosibirskInputAfter,
+  toNovosibirskInput,
+} from '../lib/dates';
 import type { ArtifactItem, CurrentUser, EventItem, ExportJob } from '../lib/types';
 import { UserIcon } from './icons';
 import { useSession } from './session-provider';
@@ -254,7 +271,6 @@ interface EventFormState {
   organizer: string;
   startsAt: string;
   endsAt: string;
-  timezone: string;
   venue: string;
   city: string;
   format: EventFormat;
@@ -266,37 +282,24 @@ interface EventFormState {
   directAccessEnabled: boolean;
 }
 
-function localDate(hours: number): string {
-  const date = new Date(Date.now() + hours * 60 * 60 * 1_000);
-  date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
-  return date.toISOString().slice(0, 16);
-}
-
 const blankEvent = (): EventFormState => ({
   title: '',
-  slug: '',
-  shortCode: '',
+  slug: 'event',
+  shortCode: 'EVENT',
   description: '',
   organizer: 'ЦПИ',
-  startsAt: localDate(24),
-  endsAt: localDate(48),
-  timezone: 'Asia/Novosibirsk',
+  startsAt: novosibirskInputAfter(24),
+  endsAt: novosibirskInputAfter(48),
   venue: '',
   city: 'Новосибирск',
   format: 'offline',
   status: 'draft',
   tags: '',
-  acceptUploadsFrom: localDate(0),
-  acceptUploadsUntil: localDate(72),
+  acceptUploadsFrom: novosibirskInputAfter(0),
+  acceptUploadsUntil: novosibirskInputAfter(48),
   maxFileSizeMb: 500,
   directAccessEnabled: true,
 });
-
-function toLocalInput(value: string): string {
-  const date = new Date(value);
-  date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
-  return date.toISOString().slice(0, 16);
-}
 
 function eventToForm(event: EventItem): EventFormState {
   return {
@@ -305,19 +308,45 @@ function eventToForm(event: EventItem): EventFormState {
     shortCode: event.shortCode,
     description: event.description ?? '',
     organizer: event.organizer,
-    startsAt: toLocalInput(event.startsAt),
-    endsAt: toLocalInput(event.endsAt),
-    timezone: event.timezone,
+    startsAt: toNovosibirskInput(event.startsAt),
+    endsAt: toNovosibirskInput(event.endsAt),
     venue: event.venue ?? '',
     city: event.city ?? '',
     format: event.format,
     status: event.status,
     tags: event.tags.join(', '),
-    acceptUploadsFrom: toLocalInput(event.acceptUploadsFrom),
-    acceptUploadsUntil: toLocalInput(event.acceptUploadsUntil),
+    acceptUploadsFrom: toNovosibirskInput(event.acceptUploadsFrom),
+    acceptUploadsUntil: toNovosibirskInput(event.acceptUploadsUntil),
     maxFileSizeMb: Math.round(event.maxFileSizeBytes / 1024 ** 2),
     directAccessEnabled: event.directAccessEnabled,
   };
+}
+
+function generatedEventIdentifiers(
+  title: string,
+  existingEvents: EventItem[],
+  excludedEventId?: string,
+): { slug: string; shortCode: string } {
+  const slugBase = eventSlugFromTitle(title);
+  const codeBase = eventShortCodeFromTitle(title);
+  const otherEvents = existingEvents.filter((event) => event.id !== excludedEventId);
+  const usedSlugs = new Set(otherEvents.map((event) => event.slug));
+  const usedCodes = new Set(otherEvents.map((event) => event.shortCode));
+  let suffix = 1;
+  let slug = slugBase;
+  while (usedSlugs.has(slug)) {
+    suffix += 1;
+    const ending = `-${suffix}`;
+    slug = `${slugBase.slice(0, 100 - ending.length)}${ending}`;
+  }
+  suffix = 1;
+  let shortCode = codeBase;
+  while (usedCodes.has(shortCode)) {
+    suffix += 1;
+    const ending = `_${suffix}`;
+    shortCode = `${codeBase.slice(0, 24 - ending.length)}${ending}`;
+  }
+  return { slug, shortCode };
 }
 
 function EventManagement({
@@ -344,35 +373,71 @@ function EventManagement({
   const update = <K extends keyof EventFormState>(key: K, value: EventFormState[K]) =>
     setForm((current) => ({ ...current, [key]: value }));
 
+  const updateTitle = (title: string) => {
+    const identifiers = generatedEventIdentifiers(title, events, editing?.id);
+    setForm((current) => ({ ...current, title, ...identifiers }));
+  };
+
+  const updateStartsAt = (startsAt: string) => {
+    setForm((current) => ({
+      ...current,
+      startsAt,
+      endsAt:
+        !startsAt || (current.endsAt && current.endsAt > startsAt)
+          ? current.endsAt
+          : addHoursToNovosibirskInput(startsAt, 1),
+    }));
+  };
+
+  const updateAcceptsFrom = (acceptUploadsFrom: string) => {
+    setForm((current) => ({
+      ...current,
+      acceptUploadsFrom,
+      acceptUploadsUntil:
+        !acceptUploadsFrom ||
+        (current.acceptUploadsUntil && current.acceptUploadsUntil > acceptUploadsFrom)
+          ? current.acceptUploadsUntil
+          : addHoursToNovosibirskInput(acceptUploadsFrom, 1),
+    }));
+  };
+
   const save = async (submitEvent: FormEvent) => {
     submitEvent.preventDefault();
     setMessage(null);
-    const payload = {
-      title: form.title,
-      slug: form.slug,
-      shortCode: form.shortCode,
-      description: form.description || null,
-      organizer: form.organizer,
-      startsAt: new Date(form.startsAt).toISOString(),
-      endsAt: new Date(form.endsAt).toISOString(),
-      timezone: form.timezone,
-      venue: form.venue || null,
-      city: form.city || null,
-      format: form.format,
-      status: form.status,
-      tags: form.tags
-        .split(',')
-        .map((tag) => tag.trim())
-        .filter(Boolean),
-      coverUrl: null,
-      acceptUploadsFrom: new Date(form.acceptUploadsFrom).toISOString(),
-      acceptUploadsUntil: new Date(form.acceptUploadsUntil).toISOString(),
-      maxFileSizeBytes: form.maxFileSizeMb * 1024 ** 2,
-      allowedMimeTypes: [],
-      blockedExtensions: ['exe', 'bat', 'cmd', 'msi'],
-      directAccessEnabled: form.directAccessEnabled,
-    };
+    if (form.endsAt <= form.startsAt) {
+      setMessage('Окончание мероприятия должно быть позже начала');
+      return;
+    }
+    if (form.acceptUploadsUntil <= form.acceptUploadsFrom) {
+      setMessage('Окончание приёма должно быть позже его начала');
+      return;
+    }
     try {
+      const identifiers = generatedEventIdentifiers(form.title, events, editing?.id);
+      const payload = {
+        title: form.title,
+        ...identifiers,
+        description: form.description || null,
+        organizer: form.organizer,
+        startsAt: fromNovosibirskInput(form.startsAt),
+        endsAt: fromNovosibirskInput(form.endsAt),
+        timezone: NOVOSIBIRSK_TIME_ZONE,
+        venue: form.venue || null,
+        city: form.city || null,
+        format: form.format,
+        status: form.status,
+        tags: form.tags
+          .split(',')
+          .map((tag) => tag.trim())
+          .filter(Boolean),
+        coverUrl: null,
+        acceptUploadsFrom: fromNovosibirskInput(form.acceptUploadsFrom),
+        acceptUploadsUntil: fromNovosibirskInput(form.acceptUploadsUntil),
+        maxFileSizeBytes: form.maxFileSizeMb * 1024 ** 2,
+        allowedMimeTypes: [],
+        blockedExtensions: ['exe', 'bat', 'cmd', 'msi'],
+        directAccessEnabled: form.directAccessEnabled,
+      };
       const saved = await api<EventItem>(
         editing ? `/admin/events/${editing.id}` : '/admin/events',
         {
@@ -421,22 +486,7 @@ function EventManagement({
           <Field label="Название">
             <input
               value={form.title}
-              onChange={(event) => update('title', event.target.value)}
-              required
-            />
-          </Field>
-          <Field label="Slug">
-            <input
-              value={form.slug}
-              onChange={(event) => update('slug', event.target.value.toLowerCase())}
-              pattern="[a-z0-9-]+"
-              required
-            />
-          </Field>
-          <Field label="Короткий код">
-            <input
-              value={form.shortCode}
-              onChange={(event) => update('shortCode', event.target.value.toUpperCase())}
+              onChange={(event) => updateTitle(event.target.value)}
               required
             />
           </Field>
@@ -447,45 +497,42 @@ function EventManagement({
               required
             />
           </Field>
-          <Field label="Начало">
-            <input
-              type="datetime-local"
-              value={form.startsAt}
-              onChange={(event) => update('startsAt', event.target.value)}
-              required
-            />
-          </Field>
-          <Field label="Окончание">
-            <input
-              type="datetime-local"
-              value={form.endsAt}
-              onChange={(event) => update('endsAt', event.target.value)}
-              required
-            />
-          </Field>
-          <Field label="Приём с">
-            <input
-              type="datetime-local"
-              value={form.acceptUploadsFrom}
-              onChange={(event) => update('acceptUploadsFrom', event.target.value)}
-              required
-            />
-          </Field>
-          <Field label="Приём до">
-            <input
-              type="datetime-local"
-              value={form.acceptUploadsUntil}
-              onChange={(event) => update('acceptUploadsUntil', event.target.value)}
-              required
-            />
-          </Field>
-          <Field label="Часовой пояс">
-            <input
-              value={form.timezone}
-              onChange={(event) => update('timezone', event.target.value)}
-              required
-            />
-          </Field>
+          <div className="generated-identifiers admin-wide" aria-live="polite">
+            <div>
+              <span>Slug создаётся автоматически</span>
+              <code>{form.slug}</code>
+            </div>
+            <div>
+              <span>Короткий код создаётся автоматически</span>
+              <code>{form.shortCode}</code>
+            </div>
+          </div>
+          <div className="timezone-banner admin-wide">
+            <strong>Все даты: {NOVOSIBIRSK_LABEL}</strong>
+            <span>Выберите дату в календаре и время отдельно — пересчёт не требуется.</span>
+          </div>
+          <DateTimeField
+            label="Начало мероприятия"
+            value={form.startsAt}
+            onChange={updateStartsAt}
+          />
+          <DateTimeField
+            label="Окончание мероприятия"
+            value={form.endsAt}
+            minValue={form.startsAt}
+            onChange={(value) => update('endsAt', value)}
+          />
+          <DateTimeField
+            label="Начало приёма материалов"
+            value={form.acceptUploadsFrom}
+            onChange={updateAcceptsFrom}
+          />
+          <DateTimeField
+            label="Окончание приёма материалов"
+            value={form.acceptUploadsUntil}
+            minValue={form.acceptUploadsFrom}
+            onChange={(value) => update('acceptUploadsUntil', value)}
+          />
           <Field label="Город">
             <input value={form.city} onChange={(event) => update('city', event.target.value)} />
           </Field>
@@ -611,7 +658,7 @@ function EventManagement({
             </div>
             <h2>{event.title}</h2>
             <p>
-              {new Date(event.startsAt).toLocaleString('ru-RU')} · {event.city || event.format}
+              {formatNovosibirskDateTime(event.startsAt)} · {event.city || event.format}
             </p>
             <div className="row-actions">
               <Button
@@ -661,6 +708,56 @@ function Field({
       <span>{label}</span>
       {children}
     </label>
+  );
+}
+
+function DateTimeField({
+  label,
+  value,
+  minValue,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  minValue?: string;
+  onChange: (value: string) => void;
+}) {
+  const [date = '', time = ''] = value.split('T');
+  const [minimumDate = '', minimumTime = ''] = (minValue ?? '').split('T');
+  return (
+    <fieldset className="datetime-field">
+      <legend>{label}</legend>
+      <div className="datetime-controls">
+        <label>
+          <span>Дата</span>
+          <input
+            type="date"
+            value={date}
+            min={minimumDate || undefined}
+            onChange={(event) => {
+              const nextDate = event.target.value;
+              onChange(nextDate ? `${nextDate}T${time || '09:00'}` : '');
+            }}
+            required
+          />
+        </label>
+        <label>
+          <span>Время</span>
+          <input
+            type="time"
+            value={time}
+            min={date && date === minimumDate ? minimumTime || undefined : undefined}
+            step={300}
+            onChange={(event) => {
+              const nextTime = event.target.value;
+              onChange(date && nextTime ? `${date}T${nextTime}` : '');
+            }}
+            required
+          />
+        </label>
+      </div>
+      <small>{NOVOSIBIRSK_LABEL}</small>
+    </fieldset>
   );
 }
 
@@ -722,11 +819,7 @@ function Participants({
             <td>{item.submissionCount}</td>
             <td>{item.artifactCount}</td>
             <td>{formatBytes(item.totalBytes)}</td>
-            <td>
-              {item.lastSubmissionAt
-                ? new Date(item.lastSubmissionAt).toLocaleDateString('ru-RU')
-                : '—'}
-            </td>
+            <td>{item.lastSubmissionAt ? formatNovosibirskDate(item.lastSubmissionAt) : '—'}</td>
           </tr>
         ))}
       </Table>
@@ -901,7 +994,7 @@ function Exports({
           {jobs.map((job) => (
             <tr key={job.id}>
               <td>{job.kind.toUpperCase()}</td>
-              <td>{new Date(job.createdAt).toLocaleString('ru-RU')}</td>
+              <td>{formatNovosibirskDateTime(job.createdAt)}</td>
               <td>
                 <Status value={job.status} />
               </td>
@@ -947,7 +1040,7 @@ function Audit() {
       <Table headings={['Дата', 'Действие', 'Тип', 'Объект', 'Детали']}>
         {items.map((item) => (
           <tr key={item.id}>
-            <td>{new Date(item.createdAt).toLocaleString('ru-RU')}</td>
+            <td>{formatNovosibirskDateTime(item.createdAt)}</td>
             <td>{item.action}</td>
             <td>{item.entityType}</td>
             <td>{item.entityId || '—'}</td>

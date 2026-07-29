@@ -446,13 +446,24 @@ components:
         - acceptUploadsUntil
       properties:
         title: { type: string, maxLength: 300 }
-        slug: { type: string, pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$' }
-        shortCode: { type: string, maxLength: 24 }
+        slug:
+          type: string
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+          readOnly: true
+          description: Автоматически генерируется из названия
+        shortCode:
+          type: string
+          maxLength: 24
+          readOnly: true
+          description: Автоматически генерируется из названия
         description: { type: [string, 'null'] }
         organizer: { type: string }
         startsAt: { type: string, format: date-time }
         endsAt: { type: string, format: date-time }
-        timezone: { type: string }
+        timezone:
+          type: string
+          enum: [Asia/Novosibirsk]
+          readOnly: true
         venue: { type: [string, 'null'] }
         city: { type: [string, 'null'] }
         format: { $ref: '#/components/schemas/EventFormat' }

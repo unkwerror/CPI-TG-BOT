@@ -90,39 +90,39 @@ const eventFieldsSchema = z.object({
 });
 
 export const eventCreateSchema = eventFieldsSchema.superRefine((value, context) => {
-  if (new Date(value.endsAt) < new Date(value.startsAt)) {
+  if (new Date(value.endsAt) <= new Date(value.startsAt)) {
     context.addIssue({
       code: 'custom',
       path: ['endsAt'],
-      message: 'Дата окончания не может быть раньше даты начала',
+      message: 'Дата окончания должна быть позже даты начала',
     });
   }
-  if (new Date(value.acceptUploadsUntil) < new Date(value.acceptUploadsFrom)) {
+  if (new Date(value.acceptUploadsUntil) <= new Date(value.acceptUploadsFrom)) {
     context.addIssue({
       code: 'custom',
       path: ['acceptUploadsUntil'],
-      message: 'Окончание приёма не может быть раньше начала',
+      message: 'Окончание приёма должно быть позже начала',
     });
   }
 });
 
 export const eventUpdateSchema = eventFieldsSchema.partial().superRefine((value, context) => {
-  if (value.startsAt && value.endsAt && new Date(value.endsAt) < new Date(value.startsAt)) {
+  if (value.startsAt && value.endsAt && new Date(value.endsAt) <= new Date(value.startsAt)) {
     context.addIssue({
       code: 'custom',
       path: ['endsAt'],
-      message: 'Дата окончания не может быть раньше даты начала',
+      message: 'Дата окончания должна быть позже даты начала',
     });
   }
   if (
     value.acceptUploadsFrom &&
     value.acceptUploadsUntil &&
-    new Date(value.acceptUploadsUntil) < new Date(value.acceptUploadsFrom)
+    new Date(value.acceptUploadsUntil) <= new Date(value.acceptUploadsFrom)
   ) {
     context.addIssue({
       code: 'custom',
       path: ['acceptUploadsUntil'],
-      message: 'Окончание приёма не может быть раньше начала',
+      message: 'Окончание приёма должно быть позже начала',
     });
   }
 });

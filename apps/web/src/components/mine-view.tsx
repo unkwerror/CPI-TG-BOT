@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button, Card } from '@cpi/ui';
 import { api } from '../lib/api';
+import { formatNovosibirskDate, formatNovosibirskDateTime } from '../lib/dates';
 import type { ArtifactItem, SubmissionItem } from '../lib/types';
 import { CatAssistant } from './cat-assistant';
 import { FilesIcon, LinkIcon } from './icons';
@@ -65,7 +66,7 @@ export function MineView() {
         <header className="screen-header compact">
           <p className="eyebrow">{selected.event?.title}</p>
           <h1>{selected.title || 'Отправка'}</h1>
-          <p>{new Date(selected.createdAt).toLocaleString('ru-RU')}</p>
+          <p>{formatNovosibirskDateTime(selected.createdAt)} · Новосибирск</p>
         </header>
         <CatAssistant
           compact
@@ -150,7 +151,7 @@ export function MineView() {
                   <h2>{submission.title || submission.event?.title || 'Материалы'}</h2>
                   <p>
                     {submission.artifactCount ?? 0} файл(а) ·{' '}
-                    {new Date(submission.createdAt).toLocaleDateString('ru-RU')}
+                    {formatNovosibirskDate(submission.createdAt)}
                   </p>
                 </div>
                 <span aria-hidden="true">›</span>

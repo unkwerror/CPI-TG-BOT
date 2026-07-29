@@ -28,6 +28,8 @@ import {
 import {
   AppError,
   artifactStatuses,
+  eventShortCodeFromTitle,
+  eventSlugFromTitle,
   eventCreateSchema,
   eventUpdateSchema,
   paginationQuerySchema,
@@ -56,6 +58,66 @@ const statusUpdateSchema = z.object({
   reason: z.string().trim().max(2_000).nullable().optional(),
 });
 
+const EVENT_TIME_ZONE = 'Asia/Novosibirsk';
+const eventTitleSchema = z.string().trim().min(2).max(300);
+
+function identifierWithSuffix(base: string, suffix: number, maximum: number, separator: string) {
+  if (suffix === 1) return base;
+  const ending = `${separator}${suffix}`;
+  return `${base.slice(0, maximum - ending.length)}${ending}`;
+}
+
+function validateEventDateRanges(values: {
+  startsAt: Date;
+  endsAt: Date;
+  acceptUploadsFrom: Date;
+  acceptUploadsUntil: Date;
+}) {
+  if (values.endsAt <= values.startsAt) {
+    throw new AppError(
+      'EVENT_DATE_RANGE_INVALID',
+      'Окончание мероприятия должно быть позже начала',
+    );
+  }
+  if (values.acceptUploadsUntil <= values.acceptUploadsFrom) {
+    throw new AppError(
+      'EVENT_ACCEPTANCE_RANGE_INVALID',
+      'Окончание приёма должно быть позже его начала',
+    );
+  }
+}
+
+async function uniqueEventIdentifiers(
+  app: Parameters<FastifyPluginAsync>[0],
+  title: string,
+  excludedEventId?: string,
+): Promise<{ slug: string; shortCode: string }> {
+  const rows = await app.db
+    .select({ id: events.id, slug: events.slug, shortCode: events.shortCode })
+    .from(events);
+  const usedSlugs = new Set(
+    rows.filter((event) => event.id !== excludedEventId).map((event) => event.slug),
+  );
+  const usedCodes = new Set(
+    rows.filter((event) => event.id !== excludedEventId).map((event) => event.shortCode),
+  );
+  const slugBase = eventSlugFromTitle(title);
+  const codeBase = eventShortCodeFromTitle(title);
+  let slugIndex = 1;
+  let slug = identifierWithSuffix(slugBase, slugIndex, 100, '-');
+  while (usedSlugs.has(slug)) {
+    slugIndex += 1;
+    slug = identifierWithSuffix(slugBase, slugIndex, 100, '-');
+  }
+  let codeIndex = 1;
+  let shortCode = identifierWithSuffix(codeBase, codeIndex, 24, '_');
+  while (usedCodes.has(shortCode)) {
+    codeIndex += 1;
+    shortCode = identifierWithSuffix(codeBase, codeIndex, 24, '_');
+  }
+  return { slug, shortCode };
+}
+
 function createEventValues(
   body: z.infer<typeof eventCreateSchema>,
   userId: string,
@@ -68,7 +130,7 @@ function createEventValues(
     organizer: body.organizer,
     startsAt: new Date(body.startsAt),
     endsAt: new Date(body.endsAt),
-    timezone: body.timezone,
+    timezone: EVENT_TIME_ZONE,
     venue: body.venue ?? null,
     city: body.city ?? null,
     format: body.format,
@@ -98,7 +160,7 @@ function updateEventValues(
     ...(body.organizer === undefined ? {} : { organizer: body.organizer }),
     ...(body.startsAt === undefined ? {} : { startsAt: new Date(body.startsAt) }),
     ...(body.endsAt === undefined ? {} : { endsAt: new Date(body.endsAt) }),
-    ...(body.timezone === undefined ? {} : { timezone: body.timezone }),
+    timezone: EVENT_TIME_ZONE,
     ...(body.venue === undefined ? {} : { venue: body.venue ?? null }),
     ...(body.city === undefined ? {} : { city: body.city ?? null }),
     ...(body.format === undefined ? {} : { format: body.format }),
@@ -228,7 +290,15 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     '/admin/events',
     { preHandler: writeGuards, schema: { tags: ['admin', 'events'] } },
     async (request, reply) => {
-      const body = eventCreateSchema.parse(request.body);
+      const submittedTitle = eventTitleSchema.parse(
+        (request.body as { title?: unknown } | null)?.title,
+      );
+      const identifiers = await uniqueEventIdentifiers(app, submittedTitle);
+      const body = eventCreateSchema.parse({
+        ...(request.body as Record<string, unknown>),
+        ...identifiers,
+        timezone: EVENT_TIME_ZONE,
+      });
       const [event] = await app.db
         .insert(events)
         .values(createEventValues(body, request.currentUser!.id))
@@ -249,10 +319,37 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     { preHandler: writeGuards, schema: { tags: ['admin', 'events'] } },
     async (request) => {
       const { eventId } = request.params as { eventId: string };
-      const body = eventUpdateSchema.parse(request.body);
+      const submittedBody = eventUpdateSchema.parse(request.body);
+      const [currentEvent] = await app.db
+        .select()
+        .from(events)
+        .where(and(eq(events.id, eventId), isNull(events.deletedAt)))
+        .limit(1);
+      if (!currentEvent) throw new AppError('EVENT_NOT_FOUND', 'Мероприятие не найдено', 404);
+
+      validateEventDateRanges({
+        startsAt: submittedBody.startsAt ? new Date(submittedBody.startsAt) : currentEvent.startsAt,
+        endsAt: submittedBody.endsAt ? new Date(submittedBody.endsAt) : currentEvent.endsAt,
+        acceptUploadsFrom: submittedBody.acceptUploadsFrom
+          ? new Date(submittedBody.acceptUploadsFrom)
+          : currentEvent.acceptUploadsFrom,
+        acceptUploadsUntil: submittedBody.acceptUploadsUntil
+          ? new Date(submittedBody.acceptUploadsUntil)
+          : currentEvent.acceptUploadsUntil,
+      });
+      const identifiers = submittedBody.title
+        ? await uniqueEventIdentifiers(app, submittedBody.title, eventId)
+        : undefined;
+      const normalizedBody = {
+        ...submittedBody,
+        slug: undefined,
+        shortCode: undefined,
+        ...identifiers,
+        timezone: EVENT_TIME_ZONE,
+      };
       const [event] = await app.db
         .update(events)
-        .set(updateEventValues(body, request.currentUser!.id))
+        .set(updateEventValues(normalizedBody, request.currentUser!.id))
         .where(and(eq(events.id, eventId), isNull(events.deletedAt)))
         .returning();
       if (!event) throw new AppError('EVENT_NOT_FOUND', 'Мероприятие не найдено', 404);
@@ -261,7 +358,11 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         entityType: 'event',
         entityId: event.id,
         eventId: event.id,
-        metadata: { changedFields: Object.keys(body) },
+        metadata: {
+          changedFields: Object.entries(normalizedBody)
+            .filter(([, value]) => value !== undefined)
+            .map(([key]) => key),
+        },
       });
       return serializeEvent(event);
     },
