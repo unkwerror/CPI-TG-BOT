@@ -227,6 +227,13 @@ server.listen(config.BOT_PORT, config.BOT_HOST, async () => {
     { command: 'materials', description: 'Мои материалы' },
     { command: 'help', description: 'Помощь' },
   ]);
+  await bot.api.setChatMenuButton({
+    menu_button: {
+      type: 'web_app',
+      text: 'Открыть приложение',
+      web_app: { url: webAppUrl() },
+    },
+  });
   if (config.BOT_MODE === 'webhook') {
     if (!config.BOT_WEBHOOK_SECRET) {
       throw new Error('BOT_WEBHOOK_SECRET is required in webhook mode');
