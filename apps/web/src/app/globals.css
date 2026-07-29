@@ -2292,6 +2292,7 @@ h2 {
 .admin-section-heading,
 .export-create {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -2302,6 +2303,15 @@ h2 {
 .export-create p {
   margin: 0;
   color: var(--muted);
+}
+
+.export-create .export-hint {
+  flex-basis: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--primary) 7%, var(--surface));
+  color: var(--text);
+  font-size: 13px;
 }
 
 .admin-toolbar select,

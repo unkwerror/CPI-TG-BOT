@@ -11,6 +11,7 @@ import {
   ilike,
   inArray,
   isNull,
+  lt,
   or,
   sql,
   sum,
@@ -117,6 +118,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/admin/dashboard', { preHandler: readGuards, schema: { tags: ['admin'] } }, async () => {
     const now = new Date();
+    const staleUploadThreshold = new Date(now.getTime() - 60 * 60 * 1_000);
     const [
       [eventCount],
       [participantCount],
@@ -152,10 +154,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         .where(
           or(
             eq(artifacts.status, 'failed'),
-            and(
-              eq(artifacts.status, 'uploading'),
-              sql`${artifacts.createdAt} < ${now} - interval '1 hour'`,
-            ),
+            and(eq(artifacts.status, 'uploading'), lt(artifacts.createdAt, staleUploadThreshold)),
           ),
         ),
     ]);

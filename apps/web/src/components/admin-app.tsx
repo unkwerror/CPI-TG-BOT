@@ -102,7 +102,14 @@ export function AdminApp() {
           user={user}
         />
         {tab === 'dashboard' ? <Dashboard /> : null}
-        {tab === 'events' ? <EventManagement onChooseEvent={setEventId} /> : null}
+        {tab === 'events' ? (
+          <EventManagement
+            onChooseEvent={(id) => {
+              setEventId(id);
+              setTab('exports');
+            }}
+          />
+        ) : null}
         {tab === 'participants' ? (
           <Participants eventId={eventId} onEventChange={setEventId} />
         ) : null}
@@ -530,8 +537,12 @@ function EventManagement({ onChooseEvent }: { onChooseEvent: (id: string) => voi
               {new Date(event.startsAt).toLocaleString('ru-RU')} · {event.city || event.format}
             </p>
             <div className="row-actions">
-              <Button type="button" onClick={() => onChooseEvent(event.id)}>
-                Выбрать
+              <Button
+                className="primary-button compact-button"
+                type="button"
+                onClick={() => onChooseEvent(event.id)}
+              >
+                Выгрузить
               </Button>
               <Button
                 type="button"
@@ -729,6 +740,7 @@ function Exports({
   onEventChange: (id: string) => void;
 }) {
   const [jobs, setJobs] = useState<ExportJob[]>([]);
+  const [message, setMessage] = useState<string | null>(null);
   const load = useCallback(async () => {
     const result = await api<{ items: ExportJob[] }>(
       `/admin/exports${eventId ? `?eventId=${eventId}` : ''}`,
@@ -742,8 +754,13 @@ function Exports({
   }, [load]);
   const create = async (kind: ExportKind) => {
     if (!eventId) return;
-    await api('/admin/exports', { method: 'POST', body: JSON.stringify({ eventId, kind }) });
-    await load();
+    setMessage('Формируем выгрузку — она появится в таблице ниже.');
+    try {
+      await api('/admin/exports', { method: 'POST', body: JSON.stringify({ eventId, kind }) });
+      await load();
+    } catch (caught) {
+      setMessage(caught instanceof Error ? caught.message : 'Не удалось создать выгрузку');
+    }
   };
   const download = async (id: string) => {
     const result = await api<{ url: string }>(`/admin/exports/${id}/download`);
@@ -754,24 +771,26 @@ function Exports({
       <Card className="export-create">
         <div>
           <h2>Новая выгрузка</h2>
-          <p>Формируется в фоне и хранится ограниченное время.</p>
+          <p>Выберите мероприятие и нужный формат. Готовый файл появится ниже.</p>
         </div>
         <EventSelect value={eventId} onChange={onEventChange} />
         <div className="row-actions">
           <Button disabled={!eventId} onClick={() => void create('csv')}>
-            CSV
+            Таблица CSV
           </Button>
           <Button disabled={!eventId} onClick={() => void create('xlsx')}>
-            XLSX
+            Таблица XLSX
           </Button>
           <Button
             className="primary-button compact-button"
             disabled={!eventId}
             onClick={() => void create('zip')}
           >
-            Полный ZIP
+            Все файлы ZIP
           </Button>
         </div>
+        {!eventId ? <p className="export-hint">Сначала выберите мероприятие.</p> : null}
+        {message ? <p className="export-hint">{message}</p> : null}
       </Card>
       <Card className="admin-table-card">
         <Table headings={['Формат', 'Создан', 'Статус', 'Прогресс', 'Размер', 'Действие']}>
