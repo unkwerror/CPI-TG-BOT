@@ -1,6 +1,6 @@
-# Add these blocks to the host Caddyfile. Services are discovered through the
-# shared cpi-crm-production_frontend Docker network.
-{$ARTIFACTS_DOMAIN} {
+# BEGIN CPI ARTIFACTS
+# Services are discovered through the shared cpi-crm-production_frontend network.
+__ARTIFACTS_DOMAIN__ {
 	encode zstd gzip
 
 	handle /api/* {
@@ -33,7 +33,7 @@
 	}
 }
 
-{$ARTIFACTS_S3_DOMAIN} {
+__ARTIFACTS_S3_DOMAIN__ {
 	reverse_proxy artifacts-minio:9000
 
 	header {
@@ -43,3 +43,4 @@
 		-Server
 	}
 }
+# END CPI ARTIFACTS
