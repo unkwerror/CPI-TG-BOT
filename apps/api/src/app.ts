@@ -239,14 +239,14 @@ export async function buildApp(config: ApiEnvironment) {
   });
 
   app.addHook('onClose', async () => {
+    s3Internal.destroy();
+    s3Public.destroy();
     await Promise.allSettled([
       artifactQueue.close(),
       exportQueue.close(),
       redis.quit(),
       queueRedis.quit(),
       pool.end(),
-      s3Internal.destroy(),
-      s3Public.destroy(),
     ]);
   });
 

@@ -7,7 +7,8 @@ type ArtifactRow = typeof artifacts.$inferSelect;
 type ExportRow = typeof exportJobs.$inferSelect;
 
 export function serializeEvent(event: EventRow) {
-  const { searchText: _searchText, ...publicEvent } = event;
+  const { searchText, ...publicEvent } = event;
+  void searchText;
   const now = new Date();
   const acceptsUploads =
     event.deletedAt == null &&
@@ -36,8 +37,7 @@ export function serializeArtifact(artifact: ArtifactRow) {
   return {
     ...artifact,
     sizeBytes: Number(artifact.sizeBytes),
-    actualSizeBytes:
-      artifact.actualSizeBytes === null ? null : Number(artifact.actualSizeBytes),
+    actualSizeBytes: artifact.actualSizeBytes === null ? null : Number(artifact.actualSizeBytes),
   };
 }
 

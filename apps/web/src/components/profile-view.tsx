@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Button, Card } from '@cpi/ui';
 import { api } from '../lib/api';
+import { CatAssistant } from './cat-assistant';
 import { useSession } from './session-provider';
 
 export function ProfileView({ required = false }: { required?: boolean }) {
@@ -53,6 +54,18 @@ export function ProfileView({ required = false }: { required?: boolean }) {
             : 'Данные видны только администраторам мероприятий.'}
         </p>
       </header>
+      <CatAssistant
+        mood={required ? 'talk' : message === 'Профиль сохранён' ? 'success' : 'idle'}
+        compact
+        live
+        message={
+          required
+            ? 'Давайте познакомимся. Обязательны только имя и согласие — остальное можно заполнить позже.'
+            : message === 'Профиль сохранён'
+              ? 'Готово, я запомнил изменения.'
+              : 'Если данные изменились, поправьте их здесь — организатор увидит актуальную версию.'
+        }
+      />
       <Card>
         <form className="form-stack" onSubmit={save}>
           <label>

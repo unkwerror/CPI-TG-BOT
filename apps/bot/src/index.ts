@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { Bot, InlineKeyboard, webhookCallback } from 'grammy';
 import { Worker } from 'bullmq';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import Redis from 'ioredis';
 import pino from 'pino';
 import { botEnvironmentSchema, parseEnvironment } from '@cpi/config';
@@ -25,9 +25,9 @@ const connection = new Redis(config.REDIS_URL, {
 const token = config.TELEGRAM_BOT_TOKEN?.trim();
 const configured = Boolean(
   token &&
-    !token.startsWith('CHANGE_ME') &&
-    !token.includes('required') &&
-    /^\d+:[A-Za-z0-9_-]+$/.test(token),
+  !token.startsWith('CHANGE_ME') &&
+  !token.includes('required') &&
+  /^\d+:[A-Za-z0-9_-]+$/.test(token),
 );
 const bot = configured ? new Bot(token!) : null;
 let notificationWorker: Worker | null = null;
@@ -248,7 +248,7 @@ const close = async (signal: string) => {
   if (stopping) return;
   stopping = true;
   logger.info({ signal }, 'Stopping bot');
-  bot?.stop();
+  await bot?.stop();
   await Promise.allSettled([
     notificationWorker?.close(),
     new Promise<void>((resolve) => server.close(() => resolve())),

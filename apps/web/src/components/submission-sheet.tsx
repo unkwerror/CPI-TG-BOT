@@ -1,18 +1,12 @@
 'use client';
 
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ChangeEvent,
-  type FormEvent,
-} from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { Button, Card } from '@cpi/ui';
 import type { UploadInitResponse } from '@cpi/shared';
 import { api, ApiClientError, uploadWithProgress, withRetry } from '../lib/api';
 import type { EventItem, SubmissionItem } from '../lib/types';
-import { CheckIcon, CloseIcon, FilesIcon, LinkIcon, UploadIcon } from './icons';
+import { CatAssistant } from './cat-assistant';
+import { CloseIcon, FilesIcon, LinkIcon, UploadIcon } from './icons';
 
 interface SelectedFile {
   id: string;
@@ -122,8 +116,7 @@ export function SubmissionSheet({
 
   const uploadOne = async (selected: SelectedFile, submissionId: string) => {
     patchFile(selected.id, { status: 'uploading' });
-    const idempotencyKey =
-      draft.uploadKeys[fingerprint(selected.file)] ?? crypto.randomUUID();
+    const idempotencyKey = draft.uploadKeys[fingerprint(selected.file)] ?? crypto.randomUUID();
     const initialized = await api<UploadInitResponse>('/uploads/init', {
       method: 'POST',
       headers: { 'idempotency-key': idempotencyKey },
@@ -170,7 +163,10 @@ export function SubmissionSheet({
         const { url } = await api<{ url: string }>(
           `/uploads/${initialized.artifactId}/part-url?partNumber=${partNumber}`,
         );
-        const blob = selected.file.slice(index * partSize, Math.min((index + 1) * partSize, selected.file.size));
+        const blob = selected.file.slice(
+          index * partSize,
+          Math.min((index + 1) * partSize, selected.file.size),
+        );
         const etag = await withRetry(() =>
           uploadWithProgress(
             url,
@@ -220,7 +216,10 @@ export function SubmissionSheet({
         }),
       });
       for (const selected of files) await uploadOne(selected, submission.id);
-      const completed = { ...submission, status: files.length ? ('processing' as const) : submission.status };
+      const completed = {
+        ...submission,
+        status: files.length ? ('processing' as const) : submission.status,
+      };
       setSuccess(completed);
       localStorage.removeItem(storageKey);
       setDraft(newDraft());
@@ -254,11 +253,23 @@ export function SubmissionSheet({
 
   if (success) {
     return (
-      <div className="sheet-backdrop" role="dialog" aria-modal="true" aria-labelledby="success-title">
+      <div
+        className="sheet-backdrop"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="success-title"
+      >
         <section className="bottom-sheet success-sheet">
-          <div className="success-mark">
-            <CheckIcon />
-          </div>
+          <CatAssistant
+            mood="success"
+            title="Ура, всё принято!"
+            message={
+              files.length
+                ? 'Теперь я проверю файлы. За статусом можно следить в разделе «Мои материалы».'
+                : 'Заметка уже у организатора мероприятия.'
+            }
+            live
+          />
           <h2 id="success-title">Материалы приняты</h2>
           <p>
             {files.length
@@ -277,7 +288,12 @@ export function SubmissionSheet({
     <div className="sheet-backdrop" role="dialog" aria-modal="true" aria-labelledby="submit-title">
       <section className="bottom-sheet">
         <div className="sheet-handle" />
-        <button className="icon-button sheet-close" type="button" onClick={onClose} aria-label="Закрыть">
+        <button
+          className="icon-button sheet-close"
+          type="button"
+          onClick={onClose}
+          aria-label="Закрыть"
+        >
           <CloseIcon />
         </button>
         <div className="sheet-heading">
@@ -285,6 +301,18 @@ export function SubmissionSheet({
           <h2 id="submit-title">Добавить артефакт</h2>
           <p>{event.title}</p>
         </div>
+        <CatAssistant
+          compact
+          live
+          mood={submitting || files.length > 0 ? 'upload' : 'talk'}
+          message={
+            submitting
+              ? `Загружаю и ничего не теряю — уже ${overallProgress}%. Не закрывайте окно.`
+              : files.length > 0
+                ? `Выбрано файлов: ${files.length}. Добавьте описание или сразу отправляйте.`
+                : 'Можно приложить несколько файлов, ссылку и заметку в одной отправке.'
+          }
+        />
         <form className="form-stack" onSubmit={submit}>
           <label>
             <span>Название</span>
@@ -344,7 +372,10 @@ export function SubmissionSheet({
                       {selected.status === 'done' ? ' · загружен' : ''}
                     </span>
                     {selected.status === 'uploading' || selected.status === 'done' ? (
-                      <div className="progress-track" aria-label={`Загружено ${selected.progress}%`}>
+                      <div
+                        className="progress-track"
+                        aria-label={`Загружено ${selected.progress}%`}
+                      >
                         <span style={{ width: `${selected.progress}%` }} />
                       </div>
                     ) : null}

@@ -18,10 +18,7 @@ function copySource(bucket: string, key: string): string {
     .join('/')}`;
 }
 
-export async function verifyArtifact(
-  context: WorkerContext,
-  artifactId: string,
-): Promise<void> {
+export async function verifyArtifact(context: WorkerContext, artifactId: string): Promise<void> {
   const [artifact] = await context.db
     .select()
     .from(artifacts)
@@ -70,8 +67,7 @@ export async function verifyArtifact(
         .set({
           status: 'quarantined',
           actualSizeBytes: actualSize,
-          statusReason:
-            'Опасный исполняемый формат оставлен в карантине: ClamAV не подключён',
+          statusReason: 'Опасный исполняемый формат оставлен в карантине: ClamAV не подключён',
         })
         .where(eq(artifacts.id, artifact.id));
       await markSubmissionFailed(context, artifact.submissionId, artifact.id);

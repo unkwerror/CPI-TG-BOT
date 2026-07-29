@@ -92,7 +92,11 @@ export const adminExportRoutes: FastifyPluginAsync = async (app) => {
     { preHandler: readGuards, schema: { tags: ['admin', 'exports'] } },
     async (request) => {
       const { exportId } = request.params as { exportId: string };
-      const [job] = await app.db.select().from(exportJobs).where(eq(exportJobs.id, exportId)).limit(1);
+      const [job] = await app.db
+        .select()
+        .from(exportJobs)
+        .where(eq(exportJobs.id, exportId))
+        .limit(1);
       if (!job) throw new AppError('EXPORT_NOT_FOUND', 'Экспорт не найден', 404);
       return serializeExportJob(job);
     },
@@ -103,7 +107,11 @@ export const adminExportRoutes: FastifyPluginAsync = async (app) => {
     { preHandler: readGuards, schema: { tags: ['admin', 'exports'] } },
     async (request) => {
       const { exportId } = request.params as { exportId: string };
-      const [job] = await app.db.select().from(exportJobs).where(eq(exportJobs.id, exportId)).limit(1);
+      const [job] = await app.db
+        .select()
+        .from(exportJobs)
+        .where(eq(exportJobs.id, exportId))
+        .limit(1);
       if (!job) throw new AppError('EXPORT_NOT_FOUND', 'Экспорт не найден', 404);
       if (job.status !== 'ready' || !job.bucket || !job.objectKey) {
         throw new AppError('EXPORT_NOT_READY', 'Выгрузка ещё не готова', 409);

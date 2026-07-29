@@ -1,28 +1,25 @@
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
 import { once } from 'node:events';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
-import archiver from 'archiver';
+import type archiver from 'archiver';
+import * as archiverModule from 'archiver';
 import { and, asc, eq, gt, isNull, sql } from 'drizzle-orm';
-import ExcelJS from 'exceljs';
-import {
-  artifacts,
-  eventParticipants,
-  events,
-  exportJobs,
-  submissions,
-  users,
-} from '@cpi/db';
+import { artifacts, eventParticipants, events, exportJobs, submissions, users } from '@cpi/db';
 import { safeZipSegment } from '@cpi/shared';
 import type { WorkerContext } from './context';
+import { writeXlsxWorkbook, type SpreadsheetColumn } from './xlsx';
 
 type ParticipantRow = Awaited<ReturnType<typeof loadParticipants>>[number];
 type ArtifactRow = Awaited<ReturnType<typeof loadArtifacts>>[number];
 type SubmissionRow = Awaited<ReturnType<typeof loadSubmissions>>[number];
+const { ZipArchive } = archiverModule as unknown as {
+  ZipArchive: new (options?: archiver.ArchiverOptions) => archiver.Archiver;
+};
 
 async function loadParticipants(context: WorkerContext, eventId: string) {
   const output: Array<{
@@ -68,12 +65,7 @@ async function loadParticipants(context: WorkerContext, eventId: string) {
       })
       .from(eventParticipants)
       .innerJoin(users, eq(users.id, eventParticipants.userId))
-      .where(
-        and(
-          eq(eventParticipants.eventId, eventId),
-          cursor ? gt(users.id, cursor) : undefined,
-        ),
-      )
+      .where(and(eq(eventParticipants.eventId, eventId), cursor ? gt(users.id, cursor) : undefined))
       .orderBy(asc(users.id))
       .limit(500);
     output.push(
@@ -207,7 +199,7 @@ async function loadSubmissions(context: WorkerContext, eventId: string) {
   return output;
 }
 
-function participantColumns(): Partial<ExcelJS.Column>[] {
+function participantColumns(): SpreadsheetColumn<ParticipantRow>[] {
   return [
     { header: 'ФИО', key: 'fullName', width: 30 },
     { header: 'Telegram username', key: 'username', width: 22 },
@@ -223,7 +215,7 @@ function participantColumns(): Partial<ExcelJS.Column>[] {
   ];
 }
 
-function artifactColumns(): Partial<ExcelJS.Column>[] {
+function artifactColumns(): SpreadsheetColumn<ArtifactRow>[] {
   return [
     { header: 'ID', key: 'id', width: 38 },
     { header: 'Отправка', key: 'submissionId', width: 38 },
@@ -242,29 +234,11 @@ function artifactColumns(): Partial<ExcelJS.Column>[] {
 }
 
 async function writeParticipantsWorkbook(filePath: string, rows: ParticipantRow[]): Promise<void> {
-  const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
-    filename: filePath,
-    useStyles: false,
-    useSharedStrings: false,
-  });
-  const sheet = workbook.addWorksheet('Участники');
-  sheet.columns = participantColumns();
-  for (const row of rows) sheet.addRow(row).commit();
-  sheet.commit();
-  await workbook.commit();
+  await writeXlsxWorkbook(filePath, [{ name: 'Участники', columns: participantColumns(), rows }]);
 }
 
 async function writeArtifactsWorkbook(filePath: string, rows: ArtifactRow[]): Promise<void> {
-  const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
-    filename: filePath,
-    useStyles: false,
-    useSharedStrings: false,
-  });
-  const sheet = workbook.addWorksheet('Артефакты');
-  sheet.columns = artifactColumns();
-  for (const row of rows) sheet.addRow(row).commit();
-  sheet.commit();
-  await workbook.commit();
+  await writeXlsxWorkbook(filePath, [{ name: 'Артефакты', columns: artifactColumns(), rows }]);
 }
 
 async function writeCombinedWorkbook(
@@ -272,25 +246,22 @@ async function writeCombinedWorkbook(
   participantRows: ParticipantRow[],
   artifactRows: ArtifactRow[],
 ): Promise<void> {
-  const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
-    filename: filePath,
-    useStyles: false,
-    useSharedStrings: false,
-  });
-  const participantSheet = workbook.addWorksheet('Участники');
-  participantSheet.columns = participantColumns();
-  for (const row of participantRows) participantSheet.addRow(row).commit();
-  participantSheet.commit();
-  const artifactSheet = workbook.addWorksheet('Артефакты');
-  artifactSheet.columns = artifactColumns();
-  for (const row of artifactRows) artifactSheet.addRow(row).commit();
-  artifactSheet.commit();
-  await workbook.commit();
+  await writeXlsxWorkbook(filePath, [
+    { name: 'Участники', columns: participantColumns(), rows: participantRows },
+    { name: 'Артефакты', columns: artifactColumns(), rows: artifactRows },
+  ]);
 }
 
 function csvCell(value: unknown): string {
   if (value === null || value === undefined) return '';
-  const text = value instanceof Date ? value.toISOString() : String(value);
+  const text =
+    value instanceof Date
+      ? value.toISOString()
+      : typeof value === 'string'
+        ? value
+        : typeof value === 'number' || typeof value === 'bigint' || typeof value === 'boolean'
+          ? String(value)
+          : JSON.stringify(value);
   return `"${text.replaceAll('"', '""')}"`;
 }
 
@@ -428,7 +399,7 @@ async function buildZip(
     queueSize: 2,
     partSize: 10 * 1024 ** 2,
   });
-  const archive = archiver('zip', { zlib: { level: 6 } });
+  const archive = new ZipArchive({ zlib: { level: 6 } });
   archive.on('warning', (error) => context.logger.warn({ error }, 'ZIP warning'));
   archive.pipe(output);
 
@@ -514,10 +485,7 @@ async function buildZip(
   return bytes;
 }
 
-export async function buildExport(
-  context: WorkerContext,
-  exportJobId: string,
-): Promise<void> {
+export async function buildExport(context: WorkerContext, exportJobId: string): Promise<void> {
   const [jobContext] = await context.db
     .select({ job: exportJobs, event: events })
     .from(exportJobs)
@@ -532,10 +500,7 @@ export async function buildExport(
   const outputPath = path.join(temporaryDirectory, `export.${jobContext.job.kind}`);
   const objectKey = `${jobContext.event.id}/${jobContext.job.id}.${jobContext.job.kind}`;
   const updateProgress = async (progress: number) => {
-    await context.db
-      .update(exportJobs)
-      .set({ progress })
-      .where(eq(exportJobs.id, exportJobId));
+    await context.db.update(exportJobs).set({ progress }).where(eq(exportJobs.id, exportJobId));
   };
 
   await context.db
@@ -583,9 +548,7 @@ export async function buildExport(
       });
     }
 
-    const expiresAt = new Date(
-      Date.now() + context.config.EXPORT_RETENTION_HOURS * 60 * 60 * 1000,
-    );
+    const expiresAt = new Date(Date.now() + context.config.EXPORT_RETENTION_HOURS * 60 * 60 * 1000);
     await context.db
       .update(exportJobs)
       .set({

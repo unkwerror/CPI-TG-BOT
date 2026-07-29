@@ -4,3 +4,5 @@ dist
 coverage
 package-lock.json
 public
+apps/web/next-env.d.ts
+TZ_Telegram_Mini_App_Artefakty.md

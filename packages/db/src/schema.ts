@@ -105,7 +105,10 @@ export const events = pgTable(
     city: text('city'),
     format: eventFormatEnum('format').notNull().default('offline'),
     status: eventStatusEnum('status').notNull().default('draft'),
-    tags: text('tags').array().notNull().default(sql`ARRAY[]::text[]`),
+    tags: text('tags')
+      .array()
+      .notNull()
+      .default(sql`ARRAY[]::text[]`),
     searchText: text('search_text').notNull().default(''),
     coverUrl: text('cover_url'),
     acceptUploadsFrom: timestamp('accept_uploads_from', { withTimezone: true }).notNull(),
@@ -113,8 +116,14 @@ export const events = pgTable(
     maxFileSizeBytes: bigint('max_file_size_bytes', { mode: 'number' })
       .notNull()
       .default(524_288_000),
-    allowedMimeTypes: text('allowed_mime_types').array().notNull().default(sql`ARRAY[]::text[]`),
-    blockedExtensions: text('blocked_extensions').array().notNull().default(sql`ARRAY[]::text[]`),
+    allowedMimeTypes: text('allowed_mime_types')
+      .array()
+      .notNull()
+      .default(sql`ARRAY[]::text[]`),
+    blockedExtensions: text('blocked_extensions')
+      .array()
+      .notNull()
+      .default(sql`ARRAY[]::text[]`),
     directAccessEnabled: boolean('direct_access_enabled').notNull().default(true),
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
     updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),

@@ -71,7 +71,9 @@ const exportWorker = new Worker(
 );
 
 for (const worker of [artifactWorker, exportWorker]) {
-  worker.on('completed', (job) => logger.info({ queue: worker.name, jobId: job.id }, 'Job completed'));
+  worker.on('completed', (job) =>
+    logger.info({ queue: worker.name, jobId: job.id }, 'Job completed'),
+  );
   worker.on('failed', (job, error) =>
     logger.error({ queue: worker.name, jobId: job?.id, error }, 'Job failed'),
   );

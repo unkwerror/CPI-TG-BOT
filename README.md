@@ -84,20 +84,20 @@ openssl rand -hex 32
 
 Критические переменные:
 
-| Переменная | Назначение |
-| --- | --- |
-| `ARTIFACTS_DOMAIN` | домен web/API с TLS |
-| `ARTIFACTS_S3_DOMAIN` | домен приватного S3 API с TLS |
-| `TELEGRAM_BOT_TOKEN` | токен BotFather |
-| `SUPERADMIN_TELEGRAM_IDS` | allowlist первого/первых superadmin |
-| `BOT_WEBHOOK_SECRET` | проверка webhook-запросов Telegram |
+| Переменная                             | Назначение                                 |
+| -------------------------------------- | ------------------------------------------ |
+| `ARTIFACTS_DOMAIN`                     | домен web/API с TLS                        |
+| `ARTIFACTS_S3_DOMAIN`                  | домен приватного S3 API с TLS              |
+| `TELEGRAM_BOT_TOKEN`                   | токен BotFather                            |
+| `SUPERADMIN_TELEGRAM_IDS`              | allowlist первого/первых superadmin        |
+| `BOT_WEBHOOK_SECRET`                   | проверка webhook-запросов Telegram         |
 | `POSTGRES_PASSWORD`, `APP_DB_PASSWORD` | владелец схемы и ограниченный runtime user |
-| `REDIS_PASSWORD` | сессии, rate limit и очередь |
-| `MINIO_ROOT_PASSWORD` | только инициализация MinIO |
-| `S3_ACCESS_KEY`, `S3_SECRET_KEY` | ограниченный прикладной S3 user |
-| `WEB_ORIGIN`, `WEB_APP_URL` | единственный разрешённый origin |
-| `S3_PUBLIC_ENDPOINT` | адрес, который открывает браузер |
-| `FILE_VERIFICATION_MODE` | `metadata-only` или `clamav` |
+| `REDIS_PASSWORD`                       | сессии, rate limit и очередь               |
+| `MINIO_ROOT_PASSWORD`                  | только инициализация MinIO                 |
+| `S3_ACCESS_KEY`, `S3_SECRET_KEY`       | ограниченный прикладной S3 user            |
+| `WEB_ORIGIN`, `WEB_APP_URL`            | единственный разрешённый origin            |
+| `S3_PUBLIC_ENDPOINT`                   | адрес, который открывает браузер           |
+| `FILE_VERIFICATION_MODE`               | `metadata-only` или `clamav`               |
 
 Полный список и безопасные пояснения находятся в [.env.example](.env.example).
 

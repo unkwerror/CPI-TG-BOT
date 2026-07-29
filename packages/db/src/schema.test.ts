@@ -12,28 +12,16 @@ describe('database invariants', () => {
   it('prevents duplicate Telegram users and event participants', async () => {
     const migration = await readFile(migrationPath, 'utf8');
     expect(migration).toContain('UNIQUE ("telegram_user_id")');
-    expect(migration).toContain(
-      'PRIMARY KEY ("event_id", "user_id")',
-    );
+    expect(migration).toContain('PRIMARY KEY ("event_id", "user_id")');
   });
 
   it('enforces idempotency and artifact ownership relationships', async () => {
     const migration = await readFile(migrationPath, 'utf8');
-    expect(migration).toContain(
-      'CREATE UNIQUE INDEX "submissions_user_idempotency_uq"',
-    );
-    expect(migration).toContain(
-      'CREATE UNIQUE INDEX "artifacts_user_idempotency_uq"',
-    );
-    expect(migration).toContain(
-      '"submission_id" uuid NOT NULL REFERENCES "submissions"("id")',
-    );
-    expect(migration).toContain(
-      '"event_id" uuid NOT NULL REFERENCES "events"("id")',
-    );
-    expect(migration).toContain(
-      '"user_id" uuid NOT NULL REFERENCES "users"("id")',
-    );
+    expect(migration).toContain('CREATE UNIQUE INDEX "submissions_user_idempotency_uq"');
+    expect(migration).toContain('CREATE UNIQUE INDEX "artifacts_user_idempotency_uq"');
+    expect(migration).toContain('"submission_id" uuid NOT NULL REFERENCES "submissions"("id")');
+    expect(migration).toContain('"event_id" uuid NOT NULL REFERENCES "events"("id")');
+    expect(migration).toContain('"user_id" uuid NOT NULL REFERENCES "users"("id")');
   });
 
   it('includes trigram search and an outbox uniqueness guard', async () => {

@@ -1,17 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import {
-  and,
-  asc,
-  desc,
-  eq,
-  gt,
-  gte,
-  inArray,
-  isNull,
-  lte,
-  or,
-  sql,
-} from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { artifacts, eventParticipants, events, submissions } from '@cpi/db';
 import {
   AppError,
@@ -139,7 +127,11 @@ export const eventRoutes: FastifyPluginAsync = async (app) => {
     async (request, reply) => {
       const { eventId } = request.params as { eventId: string };
       const idempotencyKey = request.headers['idempotency-key'];
-      if (typeof idempotencyKey !== 'string' || idempotencyKey.length < 8 || idempotencyKey.length > 128) {
+      if (
+        typeof idempotencyKey !== 'string' ||
+        idempotencyKey.length < 8 ||
+        idempotencyKey.length > 128
+      ) {
         throw new AppError(
           'IDEMPOTENCY_KEY_REQUIRED',
           'Передайте уникальный заголовок Idempotency-Key',

@@ -51,55 +51,60 @@ export const profileUpdateSchema = z.object({
 });
 
 const eventFieldsSchema = z.object({
-    title: z.string().trim().min(2).max(300),
-    slug: z
-      .string()
-      .trim()
-      .min(2)
-      .max(100)
-      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
-    shortCode: z
-      .string()
-      .trim()
-      .min(3)
-      .max(24)
-      .regex(/^[A-Za-z0-9_-]+$/)
-      .transform((value) => value.toUpperCase()),
-    description: nullableText(10_000),
-    organizer: z.string().trim().min(2).max(300),
-    startsAt: z.iso.datetime({ offset: true }),
-    endsAt: z.iso.datetime({ offset: true }),
-    timezone: z.string().trim().min(1).max(64).default('Asia/Novosibirsk'),
-    venue: nullableText(300),
-    city: nullableText(120),
-    format: z.enum(eventFormats),
-    status: z.enum(eventStatuses),
-    tags: z.array(z.string().trim().min(1).max(50)).max(20).default([]),
-    coverUrl: z.url().max(2_000).nullable().optional(),
-    acceptUploadsFrom: z.iso.datetime({ offset: true }),
-    acceptUploadsUntil: z.iso.datetime({ offset: true }),
-    maxFileSizeBytes: z.number().int().positive().max(10 * 1024 ** 3).default(500 * 1024 ** 2),
-    allowedMimeTypes: z.array(z.string().max(200)).max(100).default([]),
-    blockedExtensions: z.array(z.string().max(30)).max(100).default([]),
-    directAccessEnabled: z.boolean().default(true),
-  });
+  title: z.string().trim().min(2).max(300),
+  slug: z
+    .string()
+    .trim()
+    .min(2)
+    .max(100)
+    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+  shortCode: z
+    .string()
+    .trim()
+    .min(3)
+    .max(24)
+    .regex(/^[A-Za-z0-9_-]+$/)
+    .transform((value) => value.toUpperCase()),
+  description: nullableText(10_000),
+  organizer: z.string().trim().min(2).max(300),
+  startsAt: z.iso.datetime({ offset: true }),
+  endsAt: z.iso.datetime({ offset: true }),
+  timezone: z.string().trim().min(1).max(64).default('Asia/Novosibirsk'),
+  venue: nullableText(300),
+  city: nullableText(120),
+  format: z.enum(eventFormats),
+  status: z.enum(eventStatuses),
+  tags: z.array(z.string().trim().min(1).max(50)).max(20).default([]),
+  coverUrl: z.url().max(2_000).nullable().optional(),
+  acceptUploadsFrom: z.iso.datetime({ offset: true }),
+  acceptUploadsUntil: z.iso.datetime({ offset: true }),
+  maxFileSizeBytes: z
+    .number()
+    .int()
+    .positive()
+    .max(10 * 1024 ** 3)
+    .default(500 * 1024 ** 2),
+  allowedMimeTypes: z.array(z.string().max(200)).max(100).default([]),
+  blockedExtensions: z.array(z.string().max(30)).max(100).default([]),
+  directAccessEnabled: z.boolean().default(true),
+});
 
 export const eventCreateSchema = eventFieldsSchema.superRefine((value, context) => {
-    if (new Date(value.endsAt) < new Date(value.startsAt)) {
-      context.addIssue({
-        code: 'custom',
-        path: ['endsAt'],
-        message: 'Дата окончания не может быть раньше даты начала',
-      });
-    }
-    if (new Date(value.acceptUploadsUntil) < new Date(value.acceptUploadsFrom)) {
-      context.addIssue({
-        code: 'custom',
-        path: ['acceptUploadsUntil'],
-        message: 'Окончание приёма не может быть раньше начала',
-      });
-    }
-  });
+  if (new Date(value.endsAt) < new Date(value.startsAt)) {
+    context.addIssue({
+      code: 'custom',
+      path: ['endsAt'],
+      message: 'Дата окончания не может быть раньше даты начала',
+    });
+  }
+  if (new Date(value.acceptUploadsUntil) < new Date(value.acceptUploadsFrom)) {
+    context.addIssue({
+      code: 'custom',
+      path: ['acceptUploadsUntil'],
+      message: 'Окончание приёма не может быть раньше начала',
+    });
+  }
+});
 
 export const eventUpdateSchema = eventFieldsSchema.partial().superRefine((value, context) => {
   if (value.startsAt && value.endsAt && new Date(value.endsAt) < new Date(value.startsAt)) {
@@ -137,7 +142,11 @@ export const uploadInitSchema = z.object({
   submissionId: z.uuid(),
   fileName: z.string().trim().min(1).max(500),
   mimeType: z.string().trim().min(1).max(200),
-  sizeBytes: z.number().int().positive().max(10 * 1024 ** 3),
+  sizeBytes: z
+    .number()
+    .int()
+    .positive()
+    .max(10 * 1024 ** 3),
   lastModified: z.number().int().nonnegative().optional(),
 });
 

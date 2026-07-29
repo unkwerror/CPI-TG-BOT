@@ -31,45 +31,45 @@ paths:
               properties:
                 initData: { type: string, maxLength: 16384 }
       responses:
-        "200":
+        '200':
           description: Сессия создана
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/AuthResponse" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /api/v1/auth/session:
     get:
       tags: [auth]
       summary: Текущая сессия
       responses:
-        "200":
+        '200':
           description: Активная сессия
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/AuthResponse" }
+              schema: { $ref: '#/components/schemas/AuthResponse' }
   /api/v1/auth/logout:
     post:
       tags: [auth]
       summary: Завершить сессию
       parameters:
-        - { $ref: "#/components/parameters/CsrfToken" }
+        - { $ref: '#/components/parameters/CsrfToken' }
       responses:
-        "204": { description: Сессия завершена }
+        '204': { description: Сессия завершена }
   /api/v1/me:
     get:
       tags: [profile]
       summary: Профиль текущего пользователя
       responses:
-        "200":
+        '200':
           description: Профиль
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/User" }
+              schema: { $ref: '#/components/schemas/User' }
     patch:
       tags: [profile]
       summary: Обновить профиль
       parameters:
-        - { $ref: "#/components/parameters/CsrfToken" }
+        - { $ref: '#/components/parameters/CsrfToken' }
       requestBody:
         required: true
         content:
@@ -79,18 +79,18 @@ paths:
               required: [fullName, consent]
               properties:
                 fullName: { type: string, minLength: 2, maxLength: 200 }
-                organization: { type: [string, "null"], maxLength: 200 }
-                position: { type: [string, "null"], maxLength: 200 }
-                phone: { type: [string, "null"], maxLength: 100 }
+                organization: { type: [string, 'null'], maxLength: 200 }
+                position: { type: [string, 'null'], maxLength: 200 }
+                phone: { type: [string, 'null'], maxLength: 100 }
                 consent: { const: true }
       responses:
-        "200": { description: Профиль обновлён }
+        '200': { description: Профиль обновлён }
   /api/v1/me/submissions:
     get:
       tags: [submissions]
       summary: Все отправки текущего пользователя
       responses:
-        "200":
+        '200':
           description: Список отправок
   /api/v1/events:
     get:
@@ -99,12 +99,16 @@ paths:
       parameters:
         - { name: q, in: query, schema: { type: string, maxLength: 200 } }
         - { name: city, in: query, schema: { type: string } }
-        - { name: format, in: query, schema: { $ref: "#/components/schemas/EventFormat" } }
-        - { name: status, in: query, schema: { $ref: "#/components/schemas/EventStatus" } }
+        - { name: format, in: query, schema: { $ref: '#/components/schemas/EventFormat' } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/EventStatus' } }
         - { name: cursor, in: query, schema: { type: string, format: uuid } }
-        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - {
+            name: limit,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 100, default: 20 },
+          }
       responses:
-        "200":
+        '200':
           description: Страница мероприятий
           content:
             application/json:
@@ -113,8 +117,8 @@ paths:
                 properties:
                   items:
                     type: array
-                    items: { $ref: "#/components/schemas/Event" }
-                  nextCursor: { type: [string, "null"], format: uuid }
+                    items: { $ref: '#/components/schemas/Event' }
+                  nextCursor: { type: [string, 'null'], format: uuid }
   /api/v1/events/{eventKey}:
     get:
       tags: [events]
@@ -122,46 +126,46 @@ paths:
       parameters:
         - { name: eventKey, in: path, required: true, schema: { type: string } }
       responses:
-        "200":
+        '200':
           description: Мероприятие
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Event" }
-        "404": { $ref: "#/components/responses/NotFound" }
+              schema: { $ref: '#/components/schemas/Event' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /api/v1/events/{eventId}/submissions:
     get:
       tags: [submissions]
       summary: Свои отправки в мероприятие
       parameters:
-        - { $ref: "#/components/parameters/EventId" }
+        - { $ref: '#/components/parameters/EventId' }
       responses:
-        "200": { description: Список отправок }
+        '200': { description: Список отправок }
     post:
       tags: [submissions]
       summary: Идемпотентно создать отправку
       parameters:
-        - { $ref: "#/components/parameters/EventId" }
-        - { $ref: "#/components/parameters/CsrfToken" }
-        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: '#/components/parameters/EventId' }
+        - { $ref: '#/components/parameters/CsrfToken' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/SubmissionInput" }
+            schema: { $ref: '#/components/schemas/SubmissionInput' }
       responses:
-        "201":
+        '201':
           description: Отправка создана
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Submission" }
-        "409": { description: Приём закрыт или профиль не заполнен }
+              schema: { $ref: '#/components/schemas/Submission' }
+        '409': { description: Приём закрыт или профиль не заполнен }
   /api/v1/uploads/init:
     post:
       tags: [uploads]
       summary: Создать simple или multipart S3-загрузку
       parameters:
-        - { $ref: "#/components/parameters/CsrfToken" }
-        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - { $ref: '#/components/parameters/CsrfToken' }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
       requestBody:
         required: true
         content:
@@ -176,29 +180,34 @@ paths:
                 sizeBytes: { type: integer, minimum: 1 }
                 lastModified: { type: integer, minimum: 0 }
       responses:
-        "201":
+        '201':
           description: Параметры прямой загрузки
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/UploadInit" }
-        "413": { description: Файл превышает лимит или запрещён политикой }
+              schema: { $ref: '#/components/schemas/UploadInit' }
+        '413': { description: Файл превышает лимит или запрещён политикой }
   /api/v1/uploads/{artifactId}/part-url:
     get:
       tags: [uploads]
       summary: Короткоживущий URL отдельной multipart-части
       parameters:
-        - { $ref: "#/components/parameters/ArtifactId" }
-        - { name: partNumber, in: query, required: true, schema: { type: integer, minimum: 1, maximum: 10000 } }
+        - { $ref: '#/components/parameters/ArtifactId' }
+        - {
+            name: partNumber,
+            in: query,
+            required: true,
+            schema: { type: integer, minimum: 1, maximum: 10000 },
+          }
       responses:
-        "200":
+        '200':
           description: Presigned URL части
   /api/v1/uploads/{artifactId}/complete:
     post:
       tags: [uploads]
       summary: Идемпотентно завершить загрузку и поставить проверку в очередь
       parameters:
-        - { $ref: "#/components/parameters/ArtifactId" }
-        - { $ref: "#/components/parameters/CsrfToken" }
+        - { $ref: '#/components/parameters/ArtifactId' }
+        - { $ref: '#/components/parameters/CsrfToken' }
       requestBody:
         content:
           application/json:
@@ -215,80 +224,80 @@ paths:
                       partNumber: { type: integer }
                       etag: { type: string }
       responses:
-        "200":
+        '200':
           description: Метаданные артефакта
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Artifact" }
+              schema: { $ref: '#/components/schemas/Artifact' }
   /api/v1/uploads/{artifactId}/abort:
     post:
       tags: [uploads]
       summary: Отменить незавершённую загрузку
       parameters:
-        - { $ref: "#/components/parameters/ArtifactId" }
-        - { $ref: "#/components/parameters/CsrfToken" }
+        - { $ref: '#/components/parameters/ArtifactId' }
+        - { $ref: '#/components/parameters/CsrfToken' }
       responses:
-        "204": { description: Загрузка отменена }
+        '204': { description: Загрузка отменена }
   /api/v1/artifacts/{artifactId}/download:
     get:
       tags: [artifacts]
       summary: Защищённый временный URL готового файла
       parameters:
-        - { $ref: "#/components/parameters/ArtifactId" }
+        - { $ref: '#/components/parameters/ArtifactId' }
       responses:
-        "200":
+        '200':
           description: Presigned download URL
-        "404": { $ref: "#/components/responses/NotFound" }
+        '404': { $ref: '#/components/responses/NotFound' }
   /api/v1/admin/dashboard:
     get:
       tags: [admin]
       summary: Сводные показатели
       responses:
-        "200": { description: Дашборд }
-        "403": { $ref: "#/components/responses/Forbidden" }
+        '200': { description: Дашборд }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /api/v1/admin/events:
     get:
       tags: [admin]
       summary: Все мероприятия
       responses:
-        "200": { description: Список }
+        '200': { description: Список }
     post:
       tags: [admin]
       summary: Создать мероприятие
       parameters:
-        - { $ref: "#/components/parameters/CsrfToken" }
+        - { $ref: '#/components/parameters/CsrfToken' }
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/EventInput" }
+            schema: { $ref: '#/components/schemas/EventInput' }
       responses:
-        "201": { description: Мероприятие создано }
+        '201': { description: Мероприятие создано }
   /api/v1/admin/events/{eventId}:
     get:
       tags: [admin]
       parameters:
-        - { $ref: "#/components/parameters/EventId" }
+        - { $ref: '#/components/parameters/EventId' }
       responses:
-        "200": { description: Мероприятие }
+        '200': { description: Мероприятие }
     patch:
       tags: [admin]
       parameters:
-        - { $ref: "#/components/parameters/EventId" }
-        - { $ref: "#/components/parameters/CsrfToken" }
+        - { $ref: '#/components/parameters/EventId' }
+        - { $ref: '#/components/parameters/CsrfToken' }
       requestBody:
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/EventInput" }
+            schema: { $ref: '#/components/schemas/EventInput' }
       responses:
-        "200": { description: Мероприятие обновлено }
+        '200': { description: Мероприятие обновлено }
     delete:
       tags: [admin]
       parameters:
-        - { $ref: "#/components/parameters/EventId" }
-        - { $ref: "#/components/parameters/CsrfToken" }
+        - { $ref: '#/components/parameters/EventId' }
+        - { $ref: '#/components/parameters/CsrfToken' }
       responses:
-        "204": { description: Мероприятие архивировано }
+        '204': { description: Мероприятие архивировано }
   /api/v1/admin/users:
     get:
       tags: [admin]
@@ -297,39 +306,39 @@ paths:
         - { name: eventId, in: query, schema: { type: string, format: uuid } }
         - { name: q, in: query, schema: { type: string } }
       responses:
-        "200": { description: Страница участников }
+        '200': { description: Страница участников }
   /api/v1/admin/submissions:
     get:
       tags: [admin]
       summary: Отправки участников
       responses:
-        "200": { description: Страница отправок }
+        '200': { description: Страница отправок }
   /api/v1/admin/artifacts:
     get:
       tags: [admin]
       summary: Файлы с фильтрами
       responses:
-        "200": { description: Страница файлов }
+        '200': { description: Страница файлов }
   /api/v1/admin/artifacts/{artifactId}:
     patch:
       tags: [admin]
       summary: Изменить статус файла
       parameters:
-        - { $ref: "#/components/parameters/ArtifactId" }
-        - { $ref: "#/components/parameters/CsrfToken" }
+        - { $ref: '#/components/parameters/ArtifactId' }
+        - { $ref: '#/components/parameters/CsrfToken' }
       responses:
-        "200": { description: Файл обновлён }
+        '200': { description: Файл обновлён }
   /api/v1/admin/exports:
     get:
       tags: [admin]
       summary: Задания экспорта
       responses:
-        "200": { description: Список заданий }
+        '200': { description: Список заданий }
     post:
       tags: [admin]
       summary: Запустить CSV, XLSX или ZIP в фоне
       parameters:
-        - { $ref: "#/components/parameters/CsrfToken" }
+        - { $ref: '#/components/parameters/CsrfToken' }
       requestBody:
         required: true
         content:
@@ -341,7 +350,7 @@ paths:
                 eventId: { type: string, format: uuid }
                 kind: { enum: [csv, xlsx, zip] }
       responses:
-        "202": { description: Задание принято }
+        '202': { description: Задание принято }
   /api/v1/admin/exports/{exportId}/download:
     get:
       tags: [admin]
@@ -349,20 +358,20 @@ paths:
       parameters:
         - { name: exportId, in: path, required: true, schema: { type: string, format: uuid } }
       responses:
-        "200": { description: URL выгрузки }
-        "409": { description: Выгрузка не готова }
+        '200': { description: URL выгрузки }
+        '409': { description: Выгрузка не готова }
   /api/v1/admin/audit:
     get:
       tags: [admin]
       summary: Журнал действий
       responses:
-        "200": { description: Журнал }
+        '200': { description: Журнал }
   /api/v1/admin/admins:
     get:
       tags: [admin]
       summary: Администраторы (только superadmin)
       responses:
-        "200": { description: Список администраторов }
+        '200': { description: Список администраторов }
 components:
   securitySchemes:
     sessionCookie:
@@ -400,10 +409,10 @@ components:
       properties:
         id: { type: string, format: uuid }
         telegramUserId: { type: string, pattern: '^\d+$' }
-        fullName: { type: [string, "null"] }
-        organization: { type: [string, "null"] }
-        position: { type: [string, "null"] }
-        phone: { type: [string, "null"] }
+        fullName: { type: [string, 'null'] }
+        organization: { type: [string, 'null'] }
+        position: { type: [string, 'null'] }
+        phone: { type: [string, 'null'] }
         roles:
           type: array
           items: { enum: [participant, admin, superadmin] }
@@ -412,11 +421,11 @@ components:
       type: object
       required: [user, csrfToken]
       properties:
-        user: { $ref: "#/components/schemas/User" }
+        user: { $ref: '#/components/schemas/User' }
         csrfToken: { type: string }
     Event:
       allOf:
-        - { $ref: "#/components/schemas/EventInput" }
+        - { $ref: '#/components/schemas/EventInput' }
         - type: object
           properties:
             id: { type: string, format: uuid }
@@ -439,15 +448,15 @@ components:
         title: { type: string, maxLength: 300 }
         slug: { type: string, pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$' }
         shortCode: { type: string, maxLength: 24 }
-        description: { type: [string, "null"] }
+        description: { type: [string, 'null'] }
         organizer: { type: string }
         startsAt: { type: string, format: date-time }
         endsAt: { type: string, format: date-time }
         timezone: { type: string }
-        venue: { type: [string, "null"] }
-        city: { type: [string, "null"] }
-        format: { $ref: "#/components/schemas/EventFormat" }
-        status: { $ref: "#/components/schemas/EventStatus" }
+        venue: { type: [string, 'null'] }
+        city: { type: [string, 'null'] }
+        format: { $ref: '#/components/schemas/EventFormat' }
+        status: { $ref: '#/components/schemas/EventStatus' }
         tags: { type: array, items: { type: string } }
         acceptUploadsFrom: { type: string, format: date-time }
         acceptUploadsUntil: { type: string, format: date-time }
@@ -458,13 +467,13 @@ components:
     SubmissionInput:
       type: object
       properties:
-        title: { type: [string, "null"], maxLength: 300 }
-        text: { type: [string, "null"], maxLength: 50000 }
-        link: { type: [string, "null"], format: uri }
+        title: { type: [string, 'null'], maxLength: 300 }
+        text: { type: [string, 'null'], maxLength: 50000 }
+        link: { type: [string, 'null'], format: uri }
         hasFiles: { type: boolean }
     Submission:
       allOf:
-        - { $ref: "#/components/schemas/SubmissionInput" }
+        - { $ref: '#/components/schemas/SubmissionInput' }
         - type: object
           properties:
             id: { type: string, format: uuid }
@@ -492,7 +501,7 @@ components:
         displayName: { type: string }
         mimeType: { type: string }
         sizeBytes: { type: integer }
-        checksumSha256: { type: [string, "null"] }
+        checksumSha256: { type: [string, 'null'] }
         status:
           enum: [created, uploading, uploaded, verifying, ready, failed, quarantined, deleted]
     Error:
@@ -511,14 +520,14 @@ components:
       description: Необходима действительная Telegram-сессия
       content:
         application/json:
-          schema: { $ref: "#/components/schemas/Error" }
+          schema: { $ref: '#/components/schemas/Error' }
     Forbidden:
       description: Недостаточно прав
       content:
         application/json:
-          schema: { $ref: "#/components/schemas/Error" }
+          schema: { $ref: '#/components/schemas/Error' }
     NotFound:
       description: Объект не найден или недоступен пользователю
       content:
         application/json:
-          schema: { $ref: "#/components/schemas/Error" }
+          schema: { $ref: '#/components/schemas/Error' }

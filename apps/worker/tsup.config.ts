@@ -8,5 +8,6 @@ export default defineConfig({
   outDir: 'dist',
   sourcemap: true,
   clean: true,
+  external: ['pg'],
   noExternal: ['@cpi/config', '@cpi/db', '@cpi/shared'],
 });

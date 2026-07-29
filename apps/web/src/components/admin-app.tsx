@@ -1,26 +1,16 @@
 'use client';
 
-import {
-  useCallback,
-  useEffect,
-  useState,
-  type FormEvent,
-  type ReactNode,
-} from 'react';
+import Image from 'next/image';
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Button, Card, Spinner } from '@cpi/ui';
 import type { ArtifactStatus, EventFormat, EventStatus, ExportKind } from '@cpi/shared';
 import { api } from '../lib/api';
-import type {
-  ArtifactItem,
-  CurrentUser,
-  EventItem,
-  ExportJob,
-  SubmissionItem,
-} from '../lib/types';
-import { CalendarIcon, FilesIcon, UserIcon } from './icons';
+import type { ArtifactItem, CurrentUser, EventItem, ExportJob } from '../lib/types';
+import { UserIcon } from './icons';
 import { useSession } from './session-provider';
 
-type AdminTab = 'dashboard' | 'events' | 'participants' | 'artifacts' | 'exports' | 'audit' | 'admins';
+type AdminTab =
+  'dashboard' | 'events' | 'participants' | 'artifacts' | 'exports' | 'audit' | 'admins';
 
 interface DashboardData {
   activeEvents: number;
@@ -73,10 +63,17 @@ export function AdminApp() {
     <main className="admin-shell">
       <aside className="admin-sidebar">
         <div className="admin-brand">
-          <FilesIcon />
+          <Image
+            className="admin-brand-cat"
+            src="/cats/cat-2.svg"
+            alt=""
+            width={64}
+            height={64}
+            unoptimized
+          />
           <div>
             <strong>Артефакты</strong>
-            <span>Администрирование</span>
+            <span>Панель управления</span>
           </div>
         </div>
         <nav aria-label="Разделы администрирования">
@@ -109,9 +106,7 @@ export function AdminApp() {
         {tab === 'participants' ? (
           <Participants eventId={eventId} onEventChange={setEventId} />
         ) : null}
-        {tab === 'artifacts' ? (
-          <Artifacts eventId={eventId} onEventChange={setEventId} />
-        ) : null}
+        {tab === 'artifacts' ? <Artifacts eventId={eventId} onEventChange={setEventId} /> : null}
         {tab === 'exports' ? <Exports eventId={eventId} onEventChange={setEventId} /> : null}
         {tab === 'audit' ? <Audit /> : null}
         {tab === 'admins' ? <Admins /> : null}
@@ -136,10 +131,17 @@ function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    void api<DashboardData>('/admin/dashboard').then(setData).catch((caught: Error) => setError(caught.message));
+    void api<DashboardData>('/admin/dashboard')
+      .then(setData)
+      .catch((caught: Error) => setError(caught.message));
   }, []);
   if (error) return <div className="notice error">{error}</div>;
-  if (!data) return <div className="admin-loading"><Spinner /></div>;
+  if (!data)
+    return (
+      <div className="admin-loading">
+        <Spinner />
+      </div>
+    );
   const cards = [
     ['Активных мероприятий', data.activeEvents],
     ['Участников', data.participants],
@@ -178,7 +180,9 @@ function Dashboard() {
                   <td>{item.user.fullName}</td>
                   <td>{item.event.title}</td>
                   <td>{formatBytes(item.sizeBytes)}</td>
-                  <td><Status value={item.status} /></td>
+                  <td>
+                    <Status value={item.status} />
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -189,13 +193,7 @@ function Dashboard() {
   );
 }
 
-function EventSelect({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-}) {
+function EventSelect({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   const [events, setEvents] = useState<EventItem[]>([]);
   useEffect(() => {
     void api<{ items: EventItem[] }>('/admin/events?limit=100').then((result) => {
@@ -204,7 +202,11 @@ function EventSelect({
     });
   }, [onChange, value]);
   return (
-    <select value={value} onChange={(event) => onChange(event.target.value)} aria-label="Мероприятие">
+    <select
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      aria-label="Мероприятие"
+    >
       <option value="">Все мероприятия</option>
       {events.map((event) => (
         <option key={event.id} value={event.id}>
@@ -321,7 +323,10 @@ function EventManagement({ onChooseEvent }: { onChooseEvent: (id: string) => voi
       city: form.city || null,
       format: form.format,
       status: form.status,
-      tags: form.tags.split(',').map((tag) => tag.trim()).filter(Boolean),
+      tags: form.tags
+        .split(',')
+        .map((tag) => tag.trim())
+        .filter(Boolean),
       coverUrl: null,
       acceptUploadsFrom: new Date(form.acceptUploadsFrom).toISOString(),
       acceptUploadsUntil: new Date(form.acceptUploadsUntil).toISOString(),
@@ -354,36 +359,144 @@ function EventManagement({ onChooseEvent }: { onChooseEvent: (id: string) => voi
       <Card className="admin-form-card">
         <div className="admin-section-heading">
           <h2>{editing ? 'Редактировать мероприятие' : 'Новое мероприятие'}</h2>
-          <button type="button" className="text-button" onClick={() => setShowForm(false)}>Отмена</button>
+          <button type="button" className="text-button" onClick={() => setShowForm(false)}>
+            Отмена
+          </button>
         </div>
         <form className="admin-form" onSubmit={save}>
-          <Field label="Название"><input value={form.title} onChange={(event) => update('title', event.target.value)} required /></Field>
-          <Field label="Slug"><input value={form.slug} onChange={(event) => update('slug', event.target.value.toLowerCase())} pattern="[a-z0-9-]+" required /></Field>
-          <Field label="Короткий код"><input value={form.shortCode} onChange={(event) => update('shortCode', event.target.value.toUpperCase())} required /></Field>
-          <Field label="Организатор"><input value={form.organizer} onChange={(event) => update('organizer', event.target.value)} required /></Field>
-          <Field label="Начало"><input type="datetime-local" value={form.startsAt} onChange={(event) => update('startsAt', event.target.value)} required /></Field>
-          <Field label="Окончание"><input type="datetime-local" value={form.endsAt} onChange={(event) => update('endsAt', event.target.value)} required /></Field>
-          <Field label="Приём с"><input type="datetime-local" value={form.acceptUploadsFrom} onChange={(event) => update('acceptUploadsFrom', event.target.value)} required /></Field>
-          <Field label="Приём до"><input type="datetime-local" value={form.acceptUploadsUntil} onChange={(event) => update('acceptUploadsUntil', event.target.value)} required /></Field>
-          <Field label="Часовой пояс"><input value={form.timezone} onChange={(event) => update('timezone', event.target.value)} required /></Field>
-          <Field label="Город"><input value={form.city} onChange={(event) => update('city', event.target.value)} /></Field>
-          <Field label="Место"><input value={form.venue} onChange={(event) => update('venue', event.target.value)} /></Field>
+          <Field label="Название">
+            <input
+              value={form.title}
+              onChange={(event) => update('title', event.target.value)}
+              required
+            />
+          </Field>
+          <Field label="Slug">
+            <input
+              value={form.slug}
+              onChange={(event) => update('slug', event.target.value.toLowerCase())}
+              pattern="[a-z0-9-]+"
+              required
+            />
+          </Field>
+          <Field label="Короткий код">
+            <input
+              value={form.shortCode}
+              onChange={(event) => update('shortCode', event.target.value.toUpperCase())}
+              required
+            />
+          </Field>
+          <Field label="Организатор">
+            <input
+              value={form.organizer}
+              onChange={(event) => update('organizer', event.target.value)}
+              required
+            />
+          </Field>
+          <Field label="Начало">
+            <input
+              type="datetime-local"
+              value={form.startsAt}
+              onChange={(event) => update('startsAt', event.target.value)}
+              required
+            />
+          </Field>
+          <Field label="Окончание">
+            <input
+              type="datetime-local"
+              value={form.endsAt}
+              onChange={(event) => update('endsAt', event.target.value)}
+              required
+            />
+          </Field>
+          <Field label="Приём с">
+            <input
+              type="datetime-local"
+              value={form.acceptUploadsFrom}
+              onChange={(event) => update('acceptUploadsFrom', event.target.value)}
+              required
+            />
+          </Field>
+          <Field label="Приём до">
+            <input
+              type="datetime-local"
+              value={form.acceptUploadsUntil}
+              onChange={(event) => update('acceptUploadsUntil', event.target.value)}
+              required
+            />
+          </Field>
+          <Field label="Часовой пояс">
+            <input
+              value={form.timezone}
+              onChange={(event) => update('timezone', event.target.value)}
+              required
+            />
+          </Field>
+          <Field label="Город">
+            <input value={form.city} onChange={(event) => update('city', event.target.value)} />
+          </Field>
+          <Field label="Место">
+            <input value={form.venue} onChange={(event) => update('venue', event.target.value)} />
+          </Field>
           <Field label="Формат">
-            <select value={form.format} onChange={(event) => update('format', event.target.value as EventFormat)}>
-              <option value="offline">Очно</option><option value="online">Онлайн</option><option value="hybrid">Гибрид</option>
+            <select
+              value={form.format}
+              onChange={(event) => update('format', event.target.value as EventFormat)}
+            >
+              <option value="offline">Очно</option>
+              <option value="online">Онлайн</option>
+              <option value="hybrid">Гибрид</option>
             </select>
           </Field>
           <Field label="Статус">
-            <select value={form.status} onChange={(event) => update('status', event.target.value as EventStatus)}>
-              <option value="draft">Черновик</option><option value="published">Опубликовано</option><option value="running">Идёт</option><option value="finished">Завершено</option><option value="archived">Архив</option>
+            <select
+              value={form.status}
+              onChange={(event) => update('status', event.target.value as EventStatus)}
+            >
+              <option value="draft">Черновик</option>
+              <option value="published">Опубликовано</option>
+              <option value="running">Идёт</option>
+              <option value="finished">Завершено</option>
+              <option value="archived">Архив</option>
             </select>
           </Field>
-          <Field label="Лимит файла, МБ"><input type="number" min={1} max={10_240} value={form.maxFileSizeMb} onChange={(event) => update('maxFileSizeMb', Number(event.target.value))} /></Field>
-          <Field label="Теги через запятую"><input value={form.tags} onChange={(event) => update('tags', event.target.value)} /></Field>
-          <Field label="Описание" wide><textarea rows={5} value={form.description} onChange={(event) => update('description', event.target.value)} /></Field>
-          <label className="checkbox-field admin-wide"><input type="checkbox" checked={form.directAccessEnabled} onChange={(event) => update('directAccessEnabled', event.target.checked)} /><span>Доступно по прямой ссылке и QR-коду</span></label>
-          {message ? <div className={`notice ${message.includes('сохранено') ? 'success' : 'error'} admin-wide`}>{message}</div> : null}
-          <Button className="primary-button admin-wide" type="submit">Сохранить</Button>
+          <Field label="Лимит файла, МБ">
+            <input
+              type="number"
+              min={1}
+              max={10_240}
+              value={form.maxFileSizeMb}
+              onChange={(event) => update('maxFileSizeMb', Number(event.target.value))}
+            />
+          </Field>
+          <Field label="Теги через запятую">
+            <input value={form.tags} onChange={(event) => update('tags', event.target.value)} />
+          </Field>
+          <Field label="Описание" wide>
+            <textarea
+              rows={5}
+              value={form.description}
+              onChange={(event) => update('description', event.target.value)}
+            />
+          </Field>
+          <label className="checkbox-field admin-wide">
+            <input
+              type="checkbox"
+              checked={form.directAccessEnabled}
+              onChange={(event) => update('directAccessEnabled', event.target.checked)}
+            />
+            <span>Доступно по прямой ссылке и QR-коду</span>
+          </label>
+          {message ? (
+            <div
+              className={`notice ${message.includes('сохранено') ? 'success' : 'error'} admin-wide`}
+            >
+              {message}
+            </div>
+          ) : null}
+          <Button className="primary-button admin-wide" type="submit">
+            Сохранить
+          </Button>
         </form>
       </Card>
     );
@@ -393,17 +506,43 @@ function EventManagement({ onChooseEvent }: { onChooseEvent: (id: string) => voi
     <>
       <div className="admin-toolbar">
         <p>{events.length} мероприятий</p>
-        <Button className="primary-button compact-button" type="button" onClick={() => { setEditing(null); setForm(blankEvent()); setShowForm(true); }}>Создать мероприятие</Button>
+        <Button
+          className="primary-button compact-button"
+          type="button"
+          onClick={() => {
+            setEditing(null);
+            setForm(blankEvent());
+            setShowForm(true);
+          }}
+        >
+          Создать мероприятие
+        </Button>
       </div>
       <div className="admin-card-grid">
         {events.map((event) => (
           <Card className="admin-event-card" key={event.id}>
-            <div><Status value={event.status} /><span className="event-code">{event.shortCode}</span></div>
+            <div>
+              <Status value={event.status} />
+              <span className="event-code">{event.shortCode}</span>
+            </div>
             <h2>{event.title}</h2>
-            <p>{new Date(event.startsAt).toLocaleString('ru-RU')} · {event.city || event.format}</p>
+            <p>
+              {new Date(event.startsAt).toLocaleString('ru-RU')} · {event.city || event.format}
+            </p>
             <div className="row-actions">
-              <Button type="button" onClick={() => onChooseEvent(event.id)}>Выбрать</Button>
-              <Button type="button" onClick={() => { setEditing(event); setForm(eventToForm(event)); setShowForm(true); }}>Изменить</Button>
+              <Button type="button" onClick={() => onChooseEvent(event.id)}>
+                Выбрать
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  setEditing(event);
+                  setForm(eventToForm(event));
+                  setShowForm(true);
+                }}
+              >
+                Изменить
+              </Button>
             </div>
           </Card>
         ))}
@@ -412,8 +551,21 @@ function EventManagement({ onChooseEvent }: { onChooseEvent: (id: string) => voi
   );
 }
 
-function Field({ label, wide = false, children }: { label: string; wide?: boolean; children: ReactNode }) {
-  return <label className={wide ? 'admin-wide' : ''}><span>{label}</span>{children}</label>;
+function Field({
+  label,
+  wide = false,
+  children,
+}: {
+  label: string;
+  wide?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <label className={wide ? 'admin-wide' : ''}>
+      <span>{label}</span>
+      {children}
+    </label>
+  );
 }
 
 interface AdminParticipant extends CurrentUser {
@@ -424,24 +576,63 @@ interface AdminParticipant extends CurrentUser {
   totalBytes: number;
 }
 
-function Participants({ eventId, onEventChange }: { eventId: string; onEventChange: (id: string) => void }) {
+function Participants({
+  eventId,
+  onEventChange,
+}: {
+  eventId: string;
+  onEventChange: (id: string) => void;
+}) {
   const [items, setItems] = useState<AdminParticipant[]>([]);
   const [query, setQuery] = useState('');
   useEffect(() => {
     const parameters = new URLSearchParams({ limit: '100' });
     if (eventId) parameters.set('eventId', eventId);
     if (query) parameters.set('q', query);
-    const timer = setTimeout(() => void api<{ items: AdminParticipant[] }>(`/admin/users?${parameters}`).then((result) => setItems(result.items)), 250);
+    const timer = setTimeout(
+      () =>
+        void api<{ items: AdminParticipant[] }>(`/admin/users?${parameters}`).then((result) =>
+          setItems(result.items),
+        ),
+      250,
+    );
     return () => clearTimeout(timer);
   }, [eventId, query]);
   return (
     <Card className="admin-table-card">
       <div className="admin-toolbar">
         <EventSelect value={eventId} onChange={onEventChange} />
-        <input className="admin-search" placeholder="Поиск участника" value={query} onChange={(event) => setQuery(event.target.value)} />
+        <input
+          className="admin-search"
+          placeholder="Поиск участника"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
       </div>
-      <Table headings={['ФИО', 'Telegram', 'Организация', 'Отправок', 'Файлов', 'Объём', 'Активность']}>
-        {items.map((item) => <tr key={item.id}><td>{item.fullName}</td><td>@{item.telegramUsername || '—'}<small>{item.telegramUserId}</small></td><td>{item.organization || '—'}<small>{item.position}</small></td><td>{item.submissionCount}</td><td>{item.artifactCount}</td><td>{formatBytes(item.totalBytes)}</td><td>{item.lastSubmissionAt ? new Date(item.lastSubmissionAt).toLocaleDateString('ru-RU') : '—'}</td></tr>)}
+      <Table
+        headings={['ФИО', 'Telegram', 'Организация', 'Отправок', 'Файлов', 'Объём', 'Активность']}
+      >
+        {items.map((item) => (
+          <tr key={item.id}>
+            <td>{item.fullName}</td>
+            <td>
+              @{item.telegramUsername || '—'}
+              <small>{item.telegramUserId}</small>
+            </td>
+            <td>
+              {item.organization || '—'}
+              <small>{item.position}</small>
+            </td>
+            <td>{item.submissionCount}</td>
+            <td>{item.artifactCount}</td>
+            <td>{formatBytes(item.totalBytes)}</td>
+            <td>
+              {item.lastSubmissionAt
+                ? new Date(item.lastSubmissionAt).toLocaleDateString('ru-RU')
+                : '—'}
+            </td>
+          </tr>
+        ))}
       </Table>
     </Card>
   );
@@ -452,7 +643,13 @@ interface AdminArtifact extends ArtifactItem {
   event: EventItem;
 }
 
-function Artifacts({ eventId, onEventChange }: { eventId: string; onEventChange: (id: string) => void }) {
+function Artifacts({
+  eventId,
+  onEventChange,
+}: {
+  eventId: string;
+  onEventChange: (id: string) => void;
+}) {
   const [items, setItems] = useState<AdminArtifact[]>([]);
   const [status, setStatus] = useState('');
   const load = useCallback(async () => {
@@ -468,26 +665,74 @@ function Artifacts({ eventId, onEventChange }: { eventId: string; onEventChange:
     window.location.assign(result.url);
   };
   const changeStatus = async (id: string, next: ArtifactStatus) => {
-    await api(`/admin/artifacts/${id}`, { method: 'PATCH', body: JSON.stringify({ status: next }) });
+    await api(`/admin/artifacts/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: next }),
+    });
     await load();
   };
   return (
     <Card className="admin-table-card">
       <div className="admin-toolbar">
         <EventSelect value={eventId} onChange={onEventChange} />
-        <select value={status} onChange={(event) => setStatus(event.target.value)}><option value="">Все статусы</option><option value="ready">Готово</option><option value="verifying">Проверка</option><option value="failed">Ошибка</option><option value="quarantined">Карантин</option></select>
+        <select value={status} onChange={(event) => setStatus(event.target.value)}>
+          <option value="">Все статусы</option>
+          <option value="ready">Готово</option>
+          <option value="verifying">Проверка</option>
+          <option value="failed">Ошибка</option>
+          <option value="quarantined">Карантин</option>
+        </select>
       </div>
       <Table headings={['Файл', 'Автор', 'Мероприятие', 'Размер', 'Статус', 'SHA-256', 'Действия']}>
-        {items.map((item) => <tr key={item.id}><td>{item.displayName}<small>{item.mimeType}</small></td><td>{item.user.fullName}</td><td>{item.event.title}</td><td>{formatBytes(item.sizeBytes)}</td><td><Status value={item.status} /></td><td className="checksum">{item.checksumSha256 || '—'}</td><td><div className="row-actions">{item.status === 'ready' ? <button type="button" onClick={() => void download(item.id)}>Скачать</button> : null}{item.status === 'quarantined' || item.status === 'failed' ? <button type="button" onClick={() => void changeStatus(item.id, 'ready')}>Одобрить</button> : null}<button type="button" onClick={() => void changeStatus(item.id, 'deleted')}>Удалить</button></div></td></tr>)}
+        {items.map((item) => (
+          <tr key={item.id}>
+            <td>
+              {item.displayName}
+              <small>{item.mimeType}</small>
+            </td>
+            <td>{item.user.fullName}</td>
+            <td>{item.event.title}</td>
+            <td>{formatBytes(item.sizeBytes)}</td>
+            <td>
+              <Status value={item.status} />
+            </td>
+            <td className="checksum">{item.checksumSha256 || '—'}</td>
+            <td>
+              <div className="row-actions">
+                {item.status === 'ready' ? (
+                  <button type="button" onClick={() => void download(item.id)}>
+                    Скачать
+                  </button>
+                ) : null}
+                {item.status === 'quarantined' || item.status === 'failed' ? (
+                  <button type="button" onClick={() => void changeStatus(item.id, 'ready')}>
+                    Одобрить
+                  </button>
+                ) : null}
+                <button type="button" onClick={() => void changeStatus(item.id, 'deleted')}>
+                  Удалить
+                </button>
+              </div>
+            </td>
+          </tr>
+        ))}
       </Table>
     </Card>
   );
 }
 
-function Exports({ eventId, onEventChange }: { eventId: string; onEventChange: (id: string) => void }) {
+function Exports({
+  eventId,
+  onEventChange,
+}: {
+  eventId: string;
+  onEventChange: (id: string) => void;
+}) {
   const [jobs, setJobs] = useState<ExportJob[]>([]);
   const load = useCallback(async () => {
-    const result = await api<{ items: ExportJob[] }>(`/admin/exports${eventId ? `?eventId=${eventId}` : ''}`);
+    const result = await api<{ items: ExportJob[] }>(
+      `/admin/exports${eventId ? `?eventId=${eventId}` : ''}`,
+    );
     setJobs(result.items);
   }, [eventId]);
   useEffect(() => {
@@ -507,13 +752,49 @@ function Exports({ eventId, onEventChange }: { eventId: string; onEventChange: (
   return (
     <>
       <Card className="export-create">
-        <div><h2>Новая выгрузка</h2><p>Формируется в фоне и хранится ограниченное время.</p></div>
+        <div>
+          <h2>Новая выгрузка</h2>
+          <p>Формируется в фоне и хранится ограниченное время.</p>
+        </div>
         <EventSelect value={eventId} onChange={onEventChange} />
-        <div className="row-actions"><Button disabled={!eventId} onClick={() => void create('csv')}>CSV</Button><Button disabled={!eventId} onClick={() => void create('xlsx')}>XLSX</Button><Button className="primary-button compact-button" disabled={!eventId} onClick={() => void create('zip')}>Полный ZIP</Button></div>
+        <div className="row-actions">
+          <Button disabled={!eventId} onClick={() => void create('csv')}>
+            CSV
+          </Button>
+          <Button disabled={!eventId} onClick={() => void create('xlsx')}>
+            XLSX
+          </Button>
+          <Button
+            className="primary-button compact-button"
+            disabled={!eventId}
+            onClick={() => void create('zip')}
+          >
+            Полный ZIP
+          </Button>
+        </div>
       </Card>
       <Card className="admin-table-card">
         <Table headings={['Формат', 'Создан', 'Статус', 'Прогресс', 'Размер', 'Действие']}>
-          {jobs.map((job) => <tr key={job.id}><td>{job.kind.toUpperCase()}</td><td>{new Date(job.createdAt).toLocaleString('ru-RU')}</td><td><Status value={job.status} /></td><td>{job.progress}%</td><td>{job.sizeBytes ? formatBytes(job.sizeBytes) : '—'}</td><td>{job.status === 'ready' ? <button type="button" onClick={() => void download(job.id)}>Скачать</button> : job.errorMessage}</td></tr>)}
+          {jobs.map((job) => (
+            <tr key={job.id}>
+              <td>{job.kind.toUpperCase()}</td>
+              <td>{new Date(job.createdAt).toLocaleString('ru-RU')}</td>
+              <td>
+                <Status value={job.status} />
+              </td>
+              <td>{job.progress}%</td>
+              <td>{job.sizeBytes ? formatBytes(job.sizeBytes) : '—'}</td>
+              <td>
+                {job.status === 'ready' ? (
+                  <button type="button" onClick={() => void download(job.id)}>
+                    Скачать
+                  </button>
+                ) : (
+                  job.errorMessage
+                )}
+              </td>
+            </tr>
+          ))}
         </Table>
       </Card>
     </>
@@ -531,8 +812,28 @@ interface AuditItem {
 
 function Audit() {
   const [items, setItems] = useState<AuditItem[]>([]);
-  useEffect(() => void api<{ items: AuditItem[] }>('/admin/audit?limit=100').then((result) => setItems(result.items)), []);
-  return <Card className="admin-table-card"><Table headings={['Дата', 'Действие', 'Тип', 'Объект', 'Детали']}>{items.map((item) => <tr key={item.id}><td>{new Date(item.createdAt).toLocaleString('ru-RU')}</td><td>{item.action}</td><td>{item.entityType}</td><td>{item.entityId || '—'}</td><td className="metadata-cell">{JSON.stringify(item.metadata)}</td></tr>)}</Table></Card>;
+  useEffect(
+    () =>
+      void api<{ items: AuditItem[] }>('/admin/audit?limit=100').then((result) =>
+        setItems(result.items),
+      ),
+    [],
+  );
+  return (
+    <Card className="admin-table-card">
+      <Table headings={['Дата', 'Действие', 'Тип', 'Объект', 'Детали']}>
+        {items.map((item) => (
+          <tr key={item.id}>
+            <td>{new Date(item.createdAt).toLocaleString('ru-RU')}</td>
+            <td>{item.action}</td>
+            <td>{item.entityType}</td>
+            <td>{item.entityId || '—'}</td>
+            <td className="metadata-cell">{JSON.stringify(item.metadata)}</td>
+          </tr>
+        ))}
+      </Table>
+    </Card>
+  );
 }
 
 interface AdminUser extends CurrentUser {
@@ -552,23 +853,79 @@ function Admins() {
   }, []);
   useEffect(() => void load(), [load]);
   const assign = async (userId: string) => {
-    await api(`/admin/users/${userId}/role`, { method: 'PATCH', body: JSON.stringify({ role: 'admin', enabled: true }) });
+    await api(`/admin/users/${userId}/role`, {
+      method: 'PATCH',
+      body: JSON.stringify({ role: 'admin', enabled: true }),
+    });
     await load();
   };
   const block = async (userId: string, blocked: boolean) => {
-    await api(`/admin/users/${userId}/status`, { method: 'PATCH', body: JSON.stringify({ status: blocked ? 'blocked' : 'active' }) });
+    await api(`/admin/users/${userId}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: blocked ? 'blocked' : 'active' }),
+    });
     await load();
   };
   return (
     <div className="admin-two-column">
-      <Card className="admin-table-card"><h2>Назначенные администраторы</h2><Table headings={['Имя', 'Telegram ID', 'Роли', 'Статус']}>{admins.map((item) => <tr key={item.id}><td>{item.fullName}</td><td>{item.telegramUserId}</td><td>{item.roles.join(', ')}</td><td><button type="button" onClick={() => void block(item.id, item.status !== 'blocked')}>{item.status === 'blocked' ? 'Разблокировать' : 'Заблокировать'}</button></td></tr>)}</Table></Card>
-      <Card className="admin-table-card"><h2>Назначить из участников</h2><Table headings={['Имя', 'Telegram ID', 'Действие']}>{users.filter((candidate) => !admins.some((admin) => admin.id === candidate.id)).slice(0, 30).map((item) => <tr key={item.id}><td>{item.fullName}</td><td>{item.telegramUserId}</td><td><button type="button" onClick={() => void assign(item.id)}>Назначить</button></td></tr>)}</Table></Card>
+      <Card className="admin-table-card">
+        <h2>Назначенные администраторы</h2>
+        <Table headings={['Имя', 'Telegram ID', 'Роли', 'Статус']}>
+          {admins.map((item) => (
+            <tr key={item.id}>
+              <td>{item.fullName}</td>
+              <td>{item.telegramUserId}</td>
+              <td>{item.roles.join(', ')}</td>
+              <td>
+                <button
+                  type="button"
+                  onClick={() => void block(item.id, item.status !== 'blocked')}
+                >
+                  {item.status === 'blocked' ? 'Разблокировать' : 'Заблокировать'}
+                </button>
+              </td>
+            </tr>
+          ))}
+        </Table>
+      </Card>
+      <Card className="admin-table-card">
+        <h2>Назначить из участников</h2>
+        <Table headings={['Имя', 'Telegram ID', 'Действие']}>
+          {users
+            .filter((candidate) => !admins.some((admin) => admin.id === candidate.id))
+            .slice(0, 30)
+            .map((item) => (
+              <tr key={item.id}>
+                <td>{item.fullName}</td>
+                <td>{item.telegramUserId}</td>
+                <td>
+                  <button type="button" onClick={() => void assign(item.id)}>
+                    Назначить
+                  </button>
+                </td>
+              </tr>
+            ))}
+        </Table>
+      </Card>
     </div>
   );
 }
 
 function Table({ headings, children }: { headings: string[]; children: ReactNode }) {
-  return <div className="admin-table-scroll"><table><thead><tr>{headings.map((heading) => <th key={heading}>{heading}</th>)}</tr></thead><tbody>{children}</tbody></table></div>;
+  return (
+    <div className="admin-table-scroll">
+      <table>
+        <thead>
+          <tr>
+            {headings.map((heading) => (
+              <th key={heading}>{heading}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
+    </div>
+  );
 }
 
 function Status({ value }: { value: string }) {

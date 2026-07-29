@@ -17,10 +17,16 @@ export default tseslint.config(
     rules: {
       '@typescript-eslint/no-misused-promises': ['error', { checksVoidReturn: false }],
       '@typescript-eslint/consistent-type-imports': 'error',
+      '@typescript-eslint/require-await': 'off',
     },
   },
   {
-    files: ['**/*.config.{js,mjs,ts}', 'eslint.config.mjs'],
+    files: [
+      '**/*.config.{js,mjs,ts}',
+      'eslint.config.mjs',
+      'scripts/**/*.{js,mjs}',
+      'tests/e2e/**/*.ts',
+    ],
     extends: [tseslint.configs.disableTypeChecked],
   },
 );

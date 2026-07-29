@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Button, Card } from '@cpi/ui';
 import { api } from '../lib/api';
 import type { ArtifactItem, SubmissionItem } from '../lib/types';
+import { CatAssistant } from './cat-assistant';
 import { FilesIcon, LinkIcon } from './icons';
 
 const statusLabels: Record<string, string> = {
@@ -66,6 +67,15 @@ export function MineView() {
           <h1>{selected.title || 'Отправка'}</h1>
           <p>{new Date(selected.createdAt).toLocaleString('ru-RU')}</p>
         </header>
+        <CatAssistant
+          compact
+          mood={selected.status === 'ready' ? 'success' : 'upload'}
+          message={
+            selected.status === 'ready'
+              ? 'Всё готово: проверенные файлы можно скачать ниже.'
+              : 'Я слежу за проверкой. Статус обновится автоматически.'
+          }
+        />
         {selected.text ? <Card className="submission-text">{selected.text}</Card> : null}
         {selected.link ? (
           <a className="link-card" href={selected.link} target="_blank" rel="noreferrer">
@@ -79,7 +89,8 @@ export function MineView() {
               <div>
                 <strong>{artifact.displayName}</strong>
                 <span>
-                  {formatBytes(artifact.sizeBytes)} · {statusLabels[artifact.status] ?? artifact.status}
+                  {formatBytes(artifact.sizeBytes)} ·{' '}
+                  {statusLabels[artifact.status] ?? artifact.status}
                 </span>
                 {artifact.statusReason ? <small>{artifact.statusReason}</small> : null}
               </div>
@@ -102,12 +113,23 @@ export function MineView() {
         <h1 id="mine-title">Мои материалы</h1>
         <p>Здесь отображаются все отправки и состояние проверки файлов.</p>
       </header>
+      <CatAssistant
+        compact
+        live
+        mood={loading ? 'search' : items.length === 0 ? 'sleep' : 'idle'}
+        message={
+          loading
+            ? 'Проверяю ваши отправки и статусы файлов…'
+            : items.length === 0
+              ? 'Пока можно полежать. Первая отправка появится здесь сразу после загрузки.'
+              : 'Я слежу за проверкой файлов. Если статус изменится, список обновится сам.'
+        }
+      />
       {error ? <div className="notice error">{error}</div> : null}
       {loading ? (
         <div className="skeleton event-skeleton" />
       ) : items.length === 0 ? (
-        <div className="empty-state">
-          <FilesIcon />
+        <div className="empty-state cat-empty-state compact-empty-state">
           <h2>Материалов пока нет</h2>
           <p>Откройте мероприятие и сделайте первую отправку.</p>
         </div>

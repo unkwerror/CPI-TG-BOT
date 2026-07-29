@@ -58,7 +58,9 @@ export const apiEnvironmentSchema = z
     MULTIPART_THRESHOLD_BYTES: integer(20 * 1024 ** 2, 5 * 1024 ** 2),
     MULTIPART_PART_SIZE_BYTES: integer(10 * 1024 ** 2, 5 * 1024 ** 2),
     GLOBAL_MAX_FILE_SIZE_BYTES: integer(2 * 1024 ** 3, 1),
-    LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+    LOG_LEVEL: z
+      .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
+      .default('info'),
   })
   .and(databaseSchema)
   .and(redisSchema)
@@ -82,7 +84,9 @@ export const workerEnvironmentSchema = z
     ABANDONED_UPLOAD_HOURS: integer(24, 1),
     DELETED_OBJECT_RETENTION_DAYS: integer(30, 1),
     WORKER_CONCURRENCY: integer(2, 1),
-    LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+    LOG_LEVEL: z
+      .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
+      .default('info'),
   })
   .and(databaseSchema)
   .and(redisSchema)

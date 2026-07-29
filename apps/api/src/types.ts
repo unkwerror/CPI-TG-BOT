@@ -3,7 +3,7 @@ import type { Database } from '@cpi/db';
 import type { RoleName } from '@cpi/shared';
 import type { S3Client } from '@aws-sdk/client-s3';
 import type { Queue } from 'bullmq';
-import type { FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyReply } from 'fastify';
 import type Redis from 'ioredis';
 
 export interface SessionData {

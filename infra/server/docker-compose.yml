@@ -14,7 +14,7 @@ x-app-environment: &app-environment
   S3_QUARANTINE_BUCKET: ${S3_QUARANTINE_BUCKET:-artifacts-quarantine}
   S3_PRIVATE_BUCKET: ${S3_PRIVATE_BUCKET:-artifacts-private}
   S3_EXPORT_BUCKET: ${S3_EXPORT_BUCKET:-artifacts-exports}
-  S3_FORCE_PATH_STYLE: "true"
+  S3_FORCE_PATH_STYLE: 'true'
   TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
   LOG_LEVEL: ${LOG_LEVEL:-info}
 
@@ -22,7 +22,7 @@ x-logging: &default-logging
   driver: json-file
   options:
     max-size: 10m
-    max-file: "3"
+    max-file: '3'
 
 services:
   postgres:
@@ -60,7 +60,18 @@ services:
 
   redis:
     image: redis:7.4-alpine
-    command: [redis-server, --appendonly, "yes", --requirepass, "${REDIS_PASSWORD}", --maxmemory, 96mb, --maxmemory-policy, allkeys-lru]
+    command:
+      [
+        redis-server,
+        --appendonly,
+        'yes',
+        --requirepass,
+        '${REDIS_PASSWORD}',
+        --maxmemory,
+        96mb,
+        --maxmemory-policy,
+        noeviction,
+      ]
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
     volumes:
@@ -118,7 +129,7 @@ services:
       - ../minio/init.sh:/config/init.sh:ro
       - ../minio/app-policy.json:/config/app-policy.json:ro
     networks: [backend]
-    restart: "no"
+    restart: 'no'
     mem_limit: 128m
     logging: *default-logging
 
@@ -131,12 +142,12 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       MIGRATIONS_DIR: /app/packages/db/migrations
-    command: [npm, run, db:migrate, -w, "@cpi/db"]
+    command: [npm, run, db:migrate, -w, '@cpi/db']
     depends_on:
       postgres:
         condition: service_healthy
     networks: [backend]
-    restart: "no"
+    restart: 'no'
     mem_limit: 256m
     logging: *default-logging
 
@@ -146,12 +157,12 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://${APP_DB_USER}:${APP_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
       SEED_ADMIN_TELEGRAM_ID: ${SEED_ADMIN_TELEGRAM_ID:-}
-    command: [npm, run, db:seed, -w, "@cpi/db"]
+    command: [npm, run, db:seed, -w, '@cpi/db']
     depends_on:
       migrate:
         condition: service_completed_successfully
     networks: [backend]
-    restart: "no"
+    restart: 'no'
     mem_limit: 192m
     logging: *default-logging
 
@@ -163,16 +174,16 @@ services:
       target: api
     environment:
       <<: *app-environment
-      API_PORT: "3001"
-      DEV_AUTH_ENABLED: "false"
+      API_PORT: '3001'
+      DEV_AUTH_ENABLED: 'false'
       SUPERADMIN_TELEGRAM_IDS: ${SUPERADMIN_TELEGRAM_IDS}
-      SESSION_TTL_SECONDS: "604800"
+      SESSION_TTL_SECONDS: '604800'
       SESSION_COOKIE_NAME: cpi_artifacts_session
       COOKIE_DOMAIN: ${ARTIFACTS_DOMAIN}
-      PRESIGNED_URL_TTL_SECONDS: "900"
-      MULTIPART_THRESHOLD_BYTES: "20971520"
-      MULTIPART_PART_SIZE_BYTES: "10485760"
-      GLOBAL_MAX_FILE_SIZE_BYTES: "2147483648"
+      PRESIGNED_URL_TTL_SECONDS: '900'
+      MULTIPART_THRESHOLD_BYTES: '20971520'
+      MULTIPART_PART_SIZE_BYTES: '10485760'
+      GLOBAL_MAX_FILE_SIZE_BYTES: '2147483648'
     depends_on:
       seed:
         condition: service_completed_successfully
@@ -202,12 +213,12 @@ services:
       target: worker
     environment:
       <<: *app-environment
-      WORKER_HEALTH_PORT: "3003"
+      WORKER_HEALTH_PORT: '3003'
       FILE_VERIFICATION_MODE: ${FILE_VERIFICATION_MODE:-metadata-only}
-      EXPORT_RETENTION_HOURS: "48"
-      ABANDONED_UPLOAD_HOURS: "24"
-      DELETED_OBJECT_RETENTION_DAYS: "30"
-      WORKER_CONCURRENCY: "2"
+      EXPORT_RETENTION_HOURS: '48'
+      ABANDONED_UPLOAD_HOURS: '24'
+      DELETED_OBJECT_RETENTION_DAYS: '30'
+      WORKER_CONCURRENCY: '2'
     depends_on:
       seed:
         condition: service_completed_successfully
@@ -242,7 +253,7 @@ services:
       BOT_MODE: webhook
       BOT_WEBHOOK_PATH: /telegram/webhook
       BOT_WEBHOOK_SECRET: ${BOT_WEBHOOK_SECRET}
-      BOT_PORT: "3002"
+      BOT_PORT: '3002'
       LOG_LEVEL: ${LOG_LEVEL:-info}
     depends_on:
       seed:
@@ -270,7 +281,7 @@ services:
       dockerfile: infra/docker/Dockerfile
       target: web
       args:
-        NEXT_PUBLIC_DEV_AUTH_ENABLED: "false"
+        NEXT_PUBLIC_DEV_AUTH_ENABLED: 'false'
     depends_on:
       api:
         condition: service_healthy

@@ -31,8 +31,7 @@ export async function api<T>(
   options?: { csrf?: boolean },
 ): Promise<T> {
   const method = (init.method ?? 'GET').toUpperCase();
-  const needsCsrf =
-    options?.csrf ?? !['GET', 'HEAD', 'OPTIONS'].includes(method);
+  const needsCsrf = options?.csrf ?? !['GET', 'HEAD', 'OPTIONS'].includes(method);
   const headers = new Headers(init.headers);
   if (init.body && !headers.has('content-type')) headers.set('content-type', 'application/json');
   if (needsCsrf) {
@@ -47,9 +46,7 @@ export async function api<T>(
   });
   if (response.status === 204) return undefined as T;
   const payload = (await response.json().catch(() => null)) as
-    | T
-    | { error?: { code?: string; message?: string } }
-    | null;
+    T | { error?: { code?: string; message?: string } } | null;
   if (!response.ok) {
     const error = (payload as { error?: { code?: string; message?: string } } | null)?.error;
     throw new ApiClientError(
@@ -112,10 +109,13 @@ export function uploadWithProgress(
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve(xhr.getResponseHeader('etag') ?? '');
       } else {
-        reject(new ApiClientError(`Хранилище ответило ${xhr.status}`, 'S3_UPLOAD_FAILED', xhr.status));
+        reject(
+          new ApiClientError(`Хранилище ответило ${xhr.status}`, 'S3_UPLOAD_FAILED', xhr.status),
+        );
       }
     };
-    xhr.onerror = () => reject(new ApiClientError('Потеряна сеть при загрузке', 'NETWORK_ERROR', 0));
+    xhr.onerror = () =>
+      reject(new ApiClientError('Потеряна сеть при загрузке', 'NETWORK_ERROR', 0));
     xhr.onabort = () => reject(new ApiClientError('Загрузка отменена', 'UPLOAD_ABORTED', 0));
     xhr.send(body);
   });

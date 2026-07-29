@@ -1,14 +1,16 @@
 'use client';
 
+import Image from 'next/image';
 import { useEffect, useState } from 'react';
 import { Button, Card, Spinner } from '@cpi/ui';
 import { api } from '../lib/api';
-import type { EventItem, SubmissionItem } from '../lib/types';
+import type { EventItem } from '../lib/types';
 import { ArrowIcon, CalendarIcon, FilesIcon, UploadIcon, UserIcon } from './icons';
+import { CatAssistant } from './cat-assistant';
 import { EventsView } from './events-view';
 import { MineView } from './mine-view';
 import { ProfileView } from './profile-view';
-import { SessionProvider, useSession } from './session-provider';
+import { useSession } from './session-provider';
 import { SubmissionSheet } from './submission-sheet';
 
 type Tab = 'events' | 'mine' | 'profile';
@@ -54,24 +56,26 @@ export function MiniApp() {
 
   if (loading) {
     return (
-      <main className="center-state">
-        <div className="brand-mark">
-          <FilesIcon />
-        </div>
+      <main className="center-state cat-center-state">
+        <CatAssistant
+          mood="talk"
+          title="Кот подключается"
+          message="Секунду — проверяю безопасный вход через Telegram и готовлю мероприятия."
+          live
+        />
         <Spinner label="Авторизация" />
-        <h1>Подключаемся к Telegram</h1>
-        <p>Проверяем безопасную сессию…</p>
       </main>
     );
   }
   if (error || !user) {
     return (
-      <main className="center-state error-state">
-        <div className="brand-mark">
-          <FilesIcon />
-        </div>
+      <main className="center-state error-state cat-center-state">
+        <CatAssistant
+          mood="sleep"
+          title="Связь потерялась"
+          message={error ?? 'Откройте приложение из Telegram-бота — так я смогу вас узнать.'}
+        />
         <h1>Не удалось открыть приложение</h1>
-        <p>{error ?? 'Откройте приложение из Telegram-бота.'}</p>
         <Button type="button" className="primary-button" onClick={() => window.location.reload()}>
           Повторить
         </Button>
@@ -81,7 +85,9 @@ export function MiniApp() {
   if (!user.profileComplete) {
     return (
       <main className="app-shell profile-required">
-        {!online ? <div className="offline-banner">Нет сети — изменения пока не сохранятся</div> : null}
+        {!online ? (
+          <div className="offline-banner">Нет сети — изменения пока не сохранятся</div>
+        ) : null}
         <ProfileView required />
       </main>
     );
@@ -89,7 +95,9 @@ export function MiniApp() {
 
   return (
     <main className="app-shell">
-      {!online ? <div className="offline-banner">Нет сети. Загрузка продолжится после подключения.</div> : null}
+      {!online ? (
+        <div className="offline-banner">Нет сети. Загрузка продолжится после подключения.</div>
+      ) : null}
       {selectedEvent ? (
         <EventDetail
           event={selectedEvent}
@@ -146,7 +154,7 @@ export function MiniApp() {
         <SubmissionSheet
           event={selectedEvent}
           onClose={() => setCompose(false)}
-          onSuccess={(_submission: SubmissionItem) => undefined}
+          onSuccess={() => undefined}
         />
       ) : null}
     </main>
@@ -173,11 +181,13 @@ function EventDetail({
         ← Мероприятия
       </button>
       {event.coverUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
         <img src={event.coverUrl} alt="" className="event-cover" />
       ) : (
         <div className="event-cover placeholder">
-          <CalendarIcon />
+          <span className="event-cover-cat">
+            <Image src="/cats/cat-4.svg" alt="" width={320} height={320} unoptimized />
+          </span>
+          <span>Материалы события</span>
         </div>
       )}
       <div className="event-detail-heading">
@@ -208,6 +218,15 @@ function EventDetail({
           <strong>{Math.round(event.maxFileSizeBytes / 1024 ** 2)} МБ</strong>
         </div>
       </Card>
+      <CatAssistant
+        mood={event.acceptsUploads ? 'upload' : 'sleep'}
+        compact
+        message={
+          event.acceptsUploads
+            ? 'Можно отправить файл, ссылку или заметку. Черновик сохранится, если отвлечётесь.'
+            : 'Приём уже завершён. Ваши прежние отправки остаются в разделе «Мои материалы».'
+        }
+      />
       {event.tags.length ? (
         <div className="tag-row">
           {event.tags.map((tag) => (

@@ -133,7 +133,11 @@ export const uploadRoutes: FastifyPluginAsync = async (app) => {
     async (request, reply) => {
       const body = uploadInitSchema.parse(request.body);
       const idempotencyKey = request.headers['idempotency-key'];
-      if (typeof idempotencyKey !== 'string' || idempotencyKey.length < 8 || idempotencyKey.length > 128) {
+      if (
+        typeof idempotencyKey !== 'string' ||
+        idempotencyKey.length < 8 ||
+        idempotencyKey.length > 128
+      ) {
         throw new AppError(
           'IDEMPOTENCY_KEY_REQUIRED',
           'Передайте уникальный заголовок Idempotency-Key',
@@ -316,7 +320,11 @@ export const uploadRoutes: FastifyPluginAsync = async (app) => {
         return serializeArtifact(artifact);
       }
       if (artifact.status !== 'uploading') {
-        throw new AppError('UPLOAD_STATE_INVALID', 'Загрузку нельзя завершить в текущем состоянии', 409);
+        throw new AppError(
+          'UPLOAD_STATE_INVALID',
+          'Загрузку нельзя завершить в текущем состоянии',
+          409,
+        );
       }
 
       let etag: string | null = null;
@@ -401,9 +409,7 @@ export const uploadRoutes: FastifyPluginAsync = async (app) => {
       const [artifact] = await app.db
         .select()
         .from(artifacts)
-        .where(
-          and(eq(artifacts.id, artifactId), eq(artifacts.userId, request.currentUser!.id)),
-        )
+        .where(and(eq(artifacts.id, artifactId), eq(artifacts.userId, request.currentUser!.id)))
         .limit(1);
       if (!artifact) return reply.code(204).send();
       if (artifact.status === 'ready') {

@@ -94,7 +94,11 @@ try {
     ])
     .onConflictDoNothing();
 
-  const participantRole = await db.select().from(roles).where(eq(roles.name, 'participant')).limit(1);
+  const participantRole = await db
+    .select()
+    .from(roles)
+    .where(eq(roles.name, 'participant'))
+    .limit(1);
   if (participantRole.length === 0) throw new Error('Seed roles were not created');
 
   // Exercise the role lookup during seed so a broken enum/migration fails loudly.
@@ -102,10 +106,7 @@ try {
     .select({ id: users.id })
     .from(users)
     .innerJoin(userRoles, eq(userRoles.userId, users.id))
-    .innerJoin(
-      roles,
-      and(eq(roles.id, userRoles.roleId), eq(roles.name, participantRole[0]!.name)),
-    )
+    .innerJoin(roles, and(eq(roles.id, userRoles.roleId), eq(roles.name, participantRole[0]!.name)))
     .limit(1);
 
   process.stdout.write('Database seed completed\n');

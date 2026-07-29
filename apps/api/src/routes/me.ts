@@ -5,22 +5,26 @@ import { profileUpdateSchema } from '@cpi/shared';
 import { serializeArtifact, serializeEvent, serializeSubmission } from '../serializers';
 
 export const meRoutes: FastifyPluginAsync = async (app) => {
-  app.get('/me', { preHandler: app.requireAuth, schema: { tags: ['profile'] } }, async (request) => {
-    const user = request.currentUser!;
-    return {
-      id: user.id,
-      telegramUserId: user.telegramUserId.toString(),
-      telegramUsername: user.telegramUsername,
-      fullName: user.fullName,
-      organization: user.organization,
-      position: user.position,
-      phone: user.phone,
-      consentAt: user.consentAt,
-      status: user.status,
-      roles: user.roles,
-      profileComplete: Boolean(user.fullName && user.consentAt),
-    };
-  });
+  app.get(
+    '/me',
+    { preHandler: app.requireAuth, schema: { tags: ['profile'] } },
+    async (request) => {
+      const user = request.currentUser!;
+      return {
+        id: user.id,
+        telegramUserId: user.telegramUserId.toString(),
+        telegramUsername: user.telegramUsername,
+        fullName: user.fullName,
+        organization: user.organization,
+        position: user.position,
+        phone: user.phone,
+        consentAt: user.consentAt,
+        status: user.status,
+        roles: user.roles,
+        profileComplete: Boolean(user.fullName && user.consentAt),
+      };
+    },
+  );
 
   app.patch(
     '/me',
@@ -63,12 +67,7 @@ export const meRoutes: FastifyPluginAsync = async (app) => {
           artifacts,
           and(eq(artifacts.submissionId, submissions.id), isNull(artifacts.deletedAt)),
         )
-        .where(
-          and(
-            eq(submissions.userId, request.currentUser!.id),
-            isNull(submissions.deletedAt),
-          ),
-        )
+        .where(and(eq(submissions.userId, request.currentUser!.id), isNull(submissions.deletedAt)))
         .groupBy(submissions.id, events.id)
         .orderBy(desc(submissions.createdAt))
         .limit(100);
@@ -106,9 +105,7 @@ export const meRoutes: FastifyPluginAsync = async (app) => {
       const files = await app.db
         .select()
         .from(artifacts)
-        .where(
-          and(eq(artifacts.submissionId, submission.id), isNull(artifacts.deletedAt)),
-        )
+        .where(and(eq(artifacts.submissionId, submission.id), isNull(artifacts.deletedAt)))
         .orderBy(artifacts.createdAt);
       return {
         ...serializeSubmission(submission),

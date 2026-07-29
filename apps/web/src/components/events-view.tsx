@@ -1,10 +1,12 @@
 'use client';
 
+import Image from 'next/image';
 import { useEffect, useMemo, useState } from 'react';
 import { Card } from '@cpi/ui';
 import { api } from '../lib/api';
 import type { EventItem } from '../lib/types';
-import { ArrowIcon, CalendarIcon, SearchIcon } from './icons';
+import { CatAssistant, type CatMood } from './cat-assistant';
+import { ArrowIcon, SearchIcon } from './icons';
 
 function dateLabel(value: string, timezone: string): string {
   return new Intl.DateTimeFormat('ru-RU', {
@@ -60,13 +62,35 @@ export function EventsView({
     () => [...new Set(events.map((event) => event.city).filter(Boolean) as string[])].sort(),
     [events],
   );
+  const assistant: { mood: CatMood; message: string } = loading
+    ? {
+        mood: 'search',
+        message: query ? `Ищу «${query}» и проверяю фильтры…` : 'Собираю актуальные мероприятия…',
+      }
+    : events.length === 0
+      ? {
+          mood: 'sleep',
+          message: 'Ничего не нашёл. Попробуйте убрать фильтр или ввести короткий код события.',
+        }
+      : query
+        ? {
+            mood: 'success',
+            message: `Нашёл ${events.length}. Выберите карточку — внутри можно сразу добавить материалы.`,
+          }
+        : {
+            mood: 'talk',
+            message: 'Я помогу найти событие и доведу загрузку до конца. Начните с карточки ниже.',
+          };
 
   return (
     <section className="screen" aria-labelledby="events-title">
-      <header className="screen-header">
-        <p className="eyebrow">Материалы мероприятий</p>
-        <h1 id="events-title">Найдите мероприятие</h1>
-        <p>Выберите событие и передайте файлы, ссылку или заметку.</p>
+      <header className="screen-header events-hero">
+        <div className="events-hero__title">
+          <p className="eyebrow">Сбор артефактов</p>
+          <h1 id="events-title">Ваши материалы — на месте</h1>
+          <p>Найдите мероприятие и передайте файлы, ссылку или заметку.</p>
+        </div>
+        <CatAssistant mood={assistant.mood} message={assistant.message} live />
       </header>
 
       <label className="search-field">
@@ -119,8 +143,8 @@ export function EventsView({
           ))}
         </div>
       ) : events.length === 0 ? (
-        <div className="empty-state">
-          <CalendarIcon />
+        <div className="empty-state cat-empty-state">
+          <Image src="/cats/cat-5.svg" alt="" width={180} height={180} unoptimized />
           <h2>Ничего не найдено</h2>
           <p>Проверьте название или сбросьте фильтры.</p>
         </div>

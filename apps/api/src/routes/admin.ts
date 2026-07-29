@@ -15,15 +15,7 @@ import {
   sql,
   sum,
 } from 'drizzle-orm';
-import {
-  artifacts,
-  auditLogs,
-  eventParticipants,
-  events,
-  submissions,
-  userRoles,
-  users,
-} from '@cpi/db';
+import { artifacts, auditLogs, eventParticipants, events, submissions, users } from '@cpi/db';
 import {
   AppError,
   artifactStatuses,
@@ -123,68 +115,64 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
   const readGuards = [app.requireAuth, app.requireAdmin];
   const writeGuards = [app.requireAuth, app.requireCsrf, app.requireAdmin];
 
-  app.get(
-    '/admin/dashboard',
-    { preHandler: readGuards, schema: { tags: ['admin'] } },
-    async () => {
-      const now = new Date();
-      const [
-        [eventCount],
-        [participantCount],
-        [submissionCount],
-        [artifactCount],
-        [storage],
-        latestUploads,
-        [failedUploads],
-      ] = await Promise.all([
-        app.db
-          .select({ value: count() })
-          .from(events)
-          .where(and(isNull(events.deletedAt), inArray(events.status, ['published', 'running']))),
-        app.db.select({ value: countDistinct(eventParticipants.userId) }).from(eventParticipants),
-        app.db
-          .select({ value: count() })
-          .from(submissions)
-          .where(isNull(submissions.deletedAt)),
-        app.db.select({ value: count() }).from(artifacts).where(isNull(artifacts.deletedAt)),
-        app.db
-          .select({
-            value: sum(sql`coalesce(${artifacts.actualSizeBytes}, ${artifacts.sizeBytes})`),
-          })
-          .from(artifacts)
-          .where(eq(artifacts.status, 'ready')),
-        app.db
-          .select({ artifact: artifacts, user: users, event: events })
-          .from(artifacts)
-          .innerJoin(users, eq(users.id, artifacts.userId))
-          .innerJoin(events, eq(events.id, artifacts.eventId))
-          .orderBy(desc(artifacts.createdAt))
-          .limit(10),
-        app.db
-          .select({ value: count() })
-          .from(artifacts)
-          .where(
-            or(
-              eq(artifacts.status, 'failed'),
-              and(eq(artifacts.status, 'uploading'), sql`${artifacts.createdAt} < ${now} - interval '1 hour'`),
+  app.get('/admin/dashboard', { preHandler: readGuards, schema: { tags: ['admin'] } }, async () => {
+    const now = new Date();
+    const [
+      [eventCount],
+      [participantCount],
+      [submissionCount],
+      [artifactCount],
+      [storage],
+      latestUploads,
+      [failedUploads],
+    ] = await Promise.all([
+      app.db
+        .select({ value: count() })
+        .from(events)
+        .where(and(isNull(events.deletedAt), inArray(events.status, ['published', 'running']))),
+      app.db.select({ value: countDistinct(eventParticipants.userId) }).from(eventParticipants),
+      app.db.select({ value: count() }).from(submissions).where(isNull(submissions.deletedAt)),
+      app.db.select({ value: count() }).from(artifacts).where(isNull(artifacts.deletedAt)),
+      app.db
+        .select({
+          value: sum(sql`coalesce(${artifacts.actualSizeBytes}, ${artifacts.sizeBytes})`),
+        })
+        .from(artifacts)
+        .where(eq(artifacts.status, 'ready')),
+      app.db
+        .select({ artifact: artifacts, user: users, event: events })
+        .from(artifacts)
+        .innerJoin(users, eq(users.id, artifacts.userId))
+        .innerJoin(events, eq(events.id, artifacts.eventId))
+        .orderBy(desc(artifacts.createdAt))
+        .limit(10),
+      app.db
+        .select({ value: count() })
+        .from(artifacts)
+        .where(
+          or(
+            eq(artifacts.status, 'failed'),
+            and(
+              eq(artifacts.status, 'uploading'),
+              sql`${artifacts.createdAt} < ${now} - interval '1 hour'`,
             ),
           ),
-      ]);
-      return {
-        activeEvents: Number(eventCount?.value ?? 0),
-        participants: Number(participantCount?.value ?? 0),
-        submissions: Number(submissionCount?.value ?? 0),
-        artifacts: Number(artifactCount?.value ?? 0),
-        storageBytes: Number(storage?.value ?? 0),
-        failedUploads: Number(failedUploads?.value ?? 0),
-        latestUploads: latestUploads.map((row) => ({
-          ...serializeArtifact(row.artifact),
-          user: serializeUser(row.user),
-          event: serializeEvent(row.event),
-        })),
-      };
-    },
-  );
+        ),
+    ]);
+    return {
+      activeEvents: Number(eventCount?.value ?? 0),
+      participants: Number(participantCount?.value ?? 0),
+      submissions: Number(submissionCount?.value ?? 0),
+      artifacts: Number(artifactCount?.value ?? 0),
+      storageBytes: Number(storage?.value ?? 0),
+      failedUploads: Number(failedUploads?.value ?? 0),
+      latestUploads: latestUploads.map((row) => ({
+        ...serializeArtifact(row.artifact),
+        user: serializeUser(row.user),
+        event: serializeEvent(row.event),
+      })),
+    };
+  });
 
   app.get(
     '/admin/events',

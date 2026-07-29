@@ -67,7 +67,11 @@ export function verifyTelegramInitData(
     throw new AppError('TELEGRAM_AUTH_EXPIRED', 'Авторизация Telegram устарела', 401);
   }
   if (ageSeconds < -60) {
-    throw new AppError('TELEGRAM_AUTH_DATE_INVALID', 'Дата авторизации Telegram находится в будущем', 401);
+    throw new AppError(
+      'TELEGRAM_AUTH_DATE_INVALID',
+      'Дата авторизации Telegram находится в будущем',
+      401,
+    );
   }
 
   const rawUser = parameters.get('user');

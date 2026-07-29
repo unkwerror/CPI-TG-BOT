@@ -1,8 +1,5 @@
-import {
-  AbortMultipartUploadCommand,
-  DeleteObjectCommand,
-} from '@aws-sdk/client-s3';
-import { and, eq, inArray, isNotNull, isNull, lt, or } from 'drizzle-orm';
+import { AbortMultipartUploadCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { and, eq, inArray, isNotNull, lt } from 'drizzle-orm';
 import { artifacts, exportJobs } from '@cpi/db';
 import type { WorkerContext } from './context';
 
@@ -92,9 +89,7 @@ export async function runMaintenance(context: WorkerContext): Promise<{
   let expiredExports = 0;
   for (const job of expired) {
     try {
-      await context.s3.send(
-        new DeleteObjectCommand({ Bucket: job.bucket!, Key: job.objectKey! }),
-      );
+      await context.s3.send(new DeleteObjectCommand({ Bucket: job.bucket!, Key: job.objectKey! }));
       await context.db
         .update(exportJobs)
         .set({ status: 'expired', bucket: null, objectKey: null })

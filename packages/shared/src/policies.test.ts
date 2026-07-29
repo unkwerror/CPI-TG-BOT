@@ -115,11 +115,9 @@ describe('idempotent multipart and export paths', () => {
   });
 
   it('returns a stable cursor without loading an unbounded page', () => {
-    expect(
-      parseCursorPagination(
-        [{ id: '1' }, { id: '2' }, { id: '3' }],
-        2,
-      ),
-    ).toEqual({ items: [{ id: '1' }, { id: '2' }], nextCursor: '2' });
+    expect(parseCursorPagination([{ id: '1' }, { id: '2' }, { id: '3' }], 2)).toEqual({
+      items: [{ id: '1' }, { id: '2' }],
+      nextCursor: '2',
+    });
   });
 });

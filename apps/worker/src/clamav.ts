@@ -40,7 +40,10 @@ export async function hashAndOptionallyScan(
     await Promise.race([
       once(socket, 'close'),
       new Promise<never>((_resolve, reject) =>
-        setTimeout(() => reject(new Error('ClamAV scan response timeout')), clamav?.timeoutMs ?? 120_000),
+        setTimeout(
+          () => reject(new Error('ClamAV scan response timeout')),
+          clamav?.timeoutMs ?? 120_000,
+        ),
       ),
     ]);
     const response = Buffer.concat(responseChunks).toString('utf8').replace(/\0/g, '').trim();

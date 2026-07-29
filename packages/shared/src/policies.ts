@@ -44,20 +44,19 @@ export function extensionOf(fileName: string): string {
 }
 
 export function sanitizeDisplayName(fileName: string, maxLength = 240): string {
-  const clean = fileName
-    .normalize('NFKC')
-    .replace(/[\u0000-\u001f\u007f<>:"/\\|?*]/g, '_')
-    .replace(/\s+/g, ' ')
-    .replace(/^\.+/, '')
-    .trim();
+  const normalized = fileName.normalize('NFKC');
+  const withoutUnsafeCharacters = [...normalized]
+    .map((character) => {
+      const code = character.charCodeAt(0);
+      return code <= 31 || code === 127 || '<>:"/\\|?*'.includes(character) ? '_' : character;
+    })
+    .join('');
+  const clean = withoutUnsafeCharacters.replace(/\s+/g, ' ').replace(/^\.+/, '').trim();
   return (clean || 'file').slice(0, maxLength);
 }
 
 export function safeZipSegment(value: string, fallback = 'Без_названия'): string {
-  const clean = sanitizeDisplayName(value)
-    .replace(/\s+/g, '_')
-    .replace(/\.+$/g, '')
-    .slice(0, 100);
+  const clean = sanitizeDisplayName(value).replace(/\s+/g, '_').replace(/\.+$/g, '').slice(0, 100);
   return clean || fallback;
 }
 
@@ -83,7 +82,9 @@ export function evaluateFilePolicy(input: FilePolicyInput): FilePolicyResult {
     };
   }
   const extension = extensionOf(input.fileName);
-  const blocked = new Set((input.blockedExtensions ?? []).map((item) => item.replace(/^\./, '').toLowerCase()));
+  const blocked = new Set(
+    (input.blockedExtensions ?? []).map((item) => item.replace(/^\./, '').toLowerCase()),
+  );
   if (extension && blocked.has(extension)) {
     return {
       allowed: false,

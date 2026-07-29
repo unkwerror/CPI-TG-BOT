@@ -1,4 +1,4 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { roles, userRoles, users } from '@cpi/db';
@@ -49,7 +49,11 @@ export const adminRoleRoutes: FastifyPluginAsync = async (app) => {
       const [target] = await app.db.select().from(users).where(eq(users.id, userId)).limit(1);
       if (!target) throw new AppError('USER_NOT_FOUND', 'Пользователь не найден', 404);
       if (!body.enabled && userId === request.currentUser!.id && body.role === 'superadmin') {
-        throw new AppError('CANNOT_REVOKE_SELF', 'Нельзя снять собственную роль суперадминистратора', 409);
+        throw new AppError(
+          'CANNOT_REVOKE_SELF',
+          'Нельзя снять собственную роль суперадминистратора',
+          409,
+        );
       }
       if (body.enabled) await ensureUserRole(app.db, userId, body.role);
       else await revokeUserRole(app.db, userId, body.role);
@@ -70,7 +74,11 @@ export const adminRoleRoutes: FastifyPluginAsync = async (app) => {
       const { userId } = request.params as { userId: string };
       const body = statusChangeSchema.parse(request.body);
       if (userId === request.currentUser!.id && body.status === 'blocked') {
-        throw new AppError('CANNOT_BLOCK_SELF', 'Нельзя заблокировать собственную учётную запись', 409);
+        throw new AppError(
+          'CANNOT_BLOCK_SELF',
+          'Нельзя заблокировать собственную учётную запись',
+          409,
+        );
       }
       const [target] = await app.db
         .update(users)

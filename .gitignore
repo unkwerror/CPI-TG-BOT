@@ -13,3 +13,5 @@ test-results/
 tmp/
 exports/
 backups/
+apps/web/public/cats/
+previews/

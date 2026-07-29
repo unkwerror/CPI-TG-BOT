@@ -3,11 +3,7 @@
   "Statement": [
     {
       "Effect": "Allow",
-      "Action": [
-        "s3:GetBucketLocation",
-        "s3:ListBucket",
-        "s3:ListBucketMultipartUploads"
-      ],
+      "Action": ["s3:GetBucketLocation", "s3:ListBucket", "s3:ListBucketMultipartUploads"],
       "Resource": [
         "arn:aws:s3:::__QUARANTINE_BUCKET__",
         "arn:aws:s3:::__PRIVATE_BUCKET__",

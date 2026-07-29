@@ -1,13 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { eq } from 'drizzle-orm';
 import { telegramAuthSchema, type AuthResponse } from '@cpi/shared';
 import { users } from '@cpi/db';
-import {
-  createSession,
-  destroySession,
-  ensureUserRole,
-  loadAuthenticatedUser,
-} from '../auth';
+import { createSession, destroySession, ensureUserRole, loadAuthenticatedUser } from '../auth';
 import { verifyTelegramInitData } from '../telegram-auth';
 
 function authPayload(
@@ -42,7 +36,9 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         maxAgeSeconds: app.config.TELEGRAM_AUTH_MAX_AGE_SECONDS,
       });
       const now = new Date();
-      const inferredFullName = [telegram.user.firstName, telegram.user.lastName].filter(Boolean).join(' ');
+      const inferredFullName = [telegram.user.firstName, telegram.user.lastName]
+        .filter(Boolean)
+        .join(' ');
       const [databaseUser] = await app.db
         .insert(users)
         .values({

@@ -46,7 +46,7 @@ export async function loadAuthenticatedUser(
     phone: first.phone,
     consentAt: first.consentAt,
     status: first.status,
-    roles: rows.flatMap((row) => (row.role ? [row.role as RoleName] : [])),
+    roles: rows.flatMap((row) => (row.role ? [row.role] : [])),
   };
 }
 
@@ -89,7 +89,8 @@ export const authPlugin: FastifyPluginAsync = fp(async (app) => {
       throw new AppError('AUTH_REQUIRED', 'Необходима авторизация через Telegram', 401);
     }
     const raw = await app.redis.get(sessionKey(id));
-    if (!raw) throw new AppError('SESSION_EXPIRED', 'Сессия истекла, откройте приложение заново', 401);
+    if (!raw)
+      throw new AppError('SESSION_EXPIRED', 'Сессия истекла, откройте приложение заново', 401);
 
     let session: SessionData;
     try {
