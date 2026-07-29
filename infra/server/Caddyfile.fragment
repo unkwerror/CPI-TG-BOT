@@ -11,8 +11,7 @@ __ARTIFACTS_DOMAIN__ {
 		reverse_proxy artifacts-api:3001
 	}
 
-	handle /health/api/* {
-		uri replace /health/api /health
+	handle /health/* {
 		reverse_proxy artifacts-api:3001
 	}
 
