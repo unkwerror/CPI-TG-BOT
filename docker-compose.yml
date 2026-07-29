@@ -1,0 +1,273 @@
+name: cpi-artifacts
+
+x-app-environment: &app-environment
+  NODE_ENV: ${NODE_ENV:-development}
+  DATABASE_URL: postgresql://${APP_DB_USER}:${APP_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
+  REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+  REDIS_PREFIX: ${REDIS_PREFIX:-cpi-artifacts}
+  WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:8080}
+  S3_INTERNAL_ENDPOINT: http://minio:9000
+  S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+  S3_REGION: ${S3_REGION:-us-east-1}
+  S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+  S3_SECRET_KEY: ${S3_SECRET_KEY}
+  S3_QUARANTINE_BUCKET: ${S3_QUARANTINE_BUCKET:-artifacts-quarantine}
+  S3_PRIVATE_BUCKET: ${S3_PRIVATE_BUCKET:-artifacts-private}
+  S3_EXPORT_BUCKET: ${S3_EXPORT_BUCKET:-artifacts-exports}
+  S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+  TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+      APP_DB_USER: ${APP_DB_USER}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init-runtime-user.sh:/docker-entrypoint-initdb.d/10-runtime-user.sh:ro
+    ports:
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    logging: *default-logging
+
+  redis:
+    image: redis:7.4-alpine
+    command: [redis-server, --appendonly, "yes", --requirepass, "${REDIS_PASSWORD}"]
+    volumes:
+      - redis_data:/data
+    ports:
+      - "127.0.0.1:6380:6379"
+    healthcheck:
+      test: [CMD-SHELL, 'redis-cli -a "$${REDIS_PASSWORD}" ping | grep -q PONG']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    restart: unless-stopped
+    logging: *default-logging
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_API_CORS_ALLOW_ORIGIN: ${WEB_ORIGIN:-http://localhost:8080}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "127.0.0.1:9001:9001"
+    healthcheck:
+      test: [CMD, curl, -f, http://127.0.0.1:9000/minio/health/live]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+    logging: *default-logging
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      S3_QUARANTINE_BUCKET: ${S3_QUARANTINE_BUCKET:-artifacts-quarantine}
+      S3_PRIVATE_BUCKET: ${S3_PRIVATE_BUCKET:-artifacts-private}
+      S3_EXPORT_BUCKET: ${S3_EXPORT_BUCKET:-artifacts-exports}
+    entrypoint: [/bin/sh, /config/init.sh]
+    volumes:
+      - ./infra/minio/init.sh:/config/init.sh:ro
+      - ./infra/minio/app-policy.json:/config/app-policy.json:ro
+    restart: "no"
+    logging: *default-logging
+
+  migrate:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile
+      target: tools
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      MIGRATIONS_DIR: /app/packages/db/migrations
+    command: [npm, run, db:migrate, -w, "@cpi/db"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    logging: *default-logging
+
+  seed:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile
+      target: tools
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      DATABASE_URL: postgresql://${APP_DB_USER}:${APP_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      SEED_ADMIN_TELEGRAM_ID: ${SEED_ADMIN_TELEGRAM_ID:-999000111}
+    command: [npm, run, db:seed, -w, "@cpi/db"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+    logging: *default-logging
+
+  api:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile
+      target: api
+    environment:
+      <<: *app-environment
+      API_HOST: 0.0.0.0
+      API_PORT: "3001"
+      DEV_AUTH_ENABLED: ${DEV_AUTH_ENABLED:-true}
+      SUPERADMIN_TELEGRAM_IDS: ${SUPERADMIN_TELEGRAM_IDS:-999000111}
+      TELEGRAM_AUTH_MAX_AGE_SECONDS: ${TELEGRAM_AUTH_MAX_AGE_SECONDS:-86400}
+      SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-604800}
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-cpi_artifacts_session}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
+      PRESIGNED_URL_TTL_SECONDS: ${PRESIGNED_URL_TTL_SECONDS:-900}
+      MULTIPART_THRESHOLD_BYTES: ${MULTIPART_THRESHOLD_BYTES:-20971520}
+      MULTIPART_PART_SIZE_BYTES: ${MULTIPART_PART_SIZE_BYTES:-10485760}
+      GLOBAL_MAX_FILE_SIZE_BYTES: ${GLOBAL_MAX_FILE_SIZE_BYTES:-2147483648}
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, wget, -qO-, http://127.0.0.1:3001/health/live]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    logging: *default-logging
+
+  worker:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile
+      target: worker
+    environment:
+      <<: *app-environment
+      WORKER_HEALTH_PORT: "3003"
+      FILE_VERIFICATION_MODE: ${FILE_VERIFICATION_MODE:-metadata-only}
+      CLAMAV_HOST: ${CLAMAV_HOST:-}
+      CLAMAV_PORT: ${CLAMAV_PORT:-3310}
+      EXPORT_RETENTION_HOURS: ${EXPORT_RETENTION_HOURS:-48}
+      ABANDONED_UPLOAD_HOURS: ${ABANDONED_UPLOAD_HOURS:-24}
+      DELETED_OBJECT_RETENTION_DAYS: ${DELETED_OBJECT_RETENTION_DAYS:-30}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, wget, -qO-, http://127.0.0.1:3003/health/live]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    logging: *default-logging
+
+  bot:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile
+      target: bot
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      DATABASE_URL: postgresql://${APP_DB_USER}:${APP_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      REDIS_PREFIX: ${REDIS_PREFIX:-cpi-artifacts}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      WEB_APP_URL: ${WEB_APP_URL:-http://localhost:8080}
+      BOT_MODE: ${BOT_MODE:-polling}
+      BOT_WEBHOOK_PATH: ${BOT_WEBHOOK_PATH:-/telegram/webhook}
+      BOT_WEBHOOK_SECRET: ${BOT_WEBHOOK_SECRET}
+      BOT_PORT: "3002"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, wget, -qO-, http://127.0.0.1:3002/health/live]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    logging: *default-logging
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile
+      target: web
+      args:
+        NEXT_PUBLIC_DEV_AUTH_ENABLED: ${NEXT_PUBLIC_DEV_AUTH_ENABLED:-true}
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, wget, -qO-, http://127.0.0.1:3000/web-health]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    logging: *default-logging
+
+  nginx:
+    image: nginx:1.28-alpine
+    depends_on:
+      web:
+        condition: service_healthy
+      bot:
+        condition: service_healthy
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: [CMD, wget, -qO-, http://127.0.0.1:8080/web-health]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    logging: *default-logging
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:

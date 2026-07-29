@@ -1,0 +1,45 @@
+# Add these blocks to the host Caddyfile. Services are discovered through the
+# shared cpi-crm-production_frontend Docker network.
+{$ARTIFACTS_DOMAIN} {
+	encode zstd gzip
+
+	handle /api/* {
+		reverse_proxy artifacts-api:3001
+	}
+
+	handle /documentation* {
+		reverse_proxy artifacts-api:3001
+	}
+
+	handle /health/api/* {
+		uri strip_prefix /health/api
+		rewrite * /health{uri}
+		reverse_proxy artifacts-api:3001
+	}
+
+	handle /telegram/webhook {
+		reverse_proxy artifacts-bot:3002
+	}
+
+	handle {
+		reverse_proxy artifacts-web:3000
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}
+
+{$ARTIFACTS_S3_DOMAIN} {
+	reverse_proxy artifacts-minio:9000
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}

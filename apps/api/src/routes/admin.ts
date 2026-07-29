@@ -1,0 +1,500 @@
+import type { FastifyPluginAsync } from 'fastify';
+import { z } from 'zod';
+import {
+  and,
+  asc,
+  count,
+  countDistinct,
+  desc,
+  eq,
+  gt,
+  ilike,
+  inArray,
+  isNull,
+  or,
+  sql,
+  sum,
+} from 'drizzle-orm';
+import {
+  artifacts,
+  auditLogs,
+  eventParticipants,
+  events,
+  submissions,
+  userRoles,
+  users,
+} from '@cpi/db';
+import {
+  AppError,
+  artifactStatuses,
+  eventCreateSchema,
+  eventUpdateSchema,
+  paginationQuerySchema,
+  parseCursorPagination,
+} from '@cpi/shared';
+import { writeAudit } from '../audit';
+import {
+  serializeArtifact,
+  serializeEvent,
+  serializeSubmission,
+  serializeUser,
+} from '../serializers';
+
+const participantQuerySchema = paginationQuerySchema.extend({
+  eventId: z.uuid().optional(),
+});
+
+const artifactQuerySchema = paginationQuerySchema.extend({
+  eventId: z.uuid().optional(),
+  status: z.enum(artifactStatuses).optional(),
+});
+
+const statusUpdateSchema = z.object({
+  status: z.enum(artifactStatuses),
+  reason: z.string().trim().max(2_000).nullable().optional(),
+});
+
+function createEventValues(
+  body: z.infer<typeof eventCreateSchema>,
+  userId: string,
+): typeof events.$inferInsert {
+  return {
+    title: body.title,
+    slug: body.slug,
+    shortCode: body.shortCode,
+    description: body.description ?? null,
+    organizer: body.organizer,
+    startsAt: new Date(body.startsAt),
+    endsAt: new Date(body.endsAt),
+    timezone: body.timezone,
+    venue: body.venue ?? null,
+    city: body.city ?? null,
+    format: body.format,
+    status: body.status,
+    tags: body.tags,
+    coverUrl: body.coverUrl ?? null,
+    acceptUploadsFrom: new Date(body.acceptUploadsFrom),
+    acceptUploadsUntil: new Date(body.acceptUploadsUntil),
+    maxFileSizeBytes: body.maxFileSizeBytes,
+    allowedMimeTypes: body.allowedMimeTypes,
+    blockedExtensions: body.blockedExtensions,
+    directAccessEnabled: body.directAccessEnabled,
+    createdBy: userId,
+    updatedBy: userId,
+  };
+}
+
+function updateEventValues(
+  body: z.infer<typeof eventUpdateSchema>,
+  userId: string,
+): Partial<typeof events.$inferInsert> {
+  return {
+    ...(body.title === undefined ? {} : { title: body.title }),
+    ...(body.slug === undefined ? {} : { slug: body.slug }),
+    ...(body.shortCode === undefined ? {} : { shortCode: body.shortCode }),
+    ...(body.description === undefined ? {} : { description: body.description ?? null }),
+    ...(body.organizer === undefined ? {} : { organizer: body.organizer }),
+    ...(body.startsAt === undefined ? {} : { startsAt: new Date(body.startsAt) }),
+    ...(body.endsAt === undefined ? {} : { endsAt: new Date(body.endsAt) }),
+    ...(body.timezone === undefined ? {} : { timezone: body.timezone }),
+    ...(body.venue === undefined ? {} : { venue: body.venue ?? null }),
+    ...(body.city === undefined ? {} : { city: body.city ?? null }),
+    ...(body.format === undefined ? {} : { format: body.format }),
+    ...(body.status === undefined ? {} : { status: body.status }),
+    ...(body.tags === undefined ? {} : { tags: body.tags }),
+    ...(body.coverUrl === undefined ? {} : { coverUrl: body.coverUrl ?? null }),
+    ...(body.acceptUploadsFrom === undefined
+      ? {}
+      : { acceptUploadsFrom: new Date(body.acceptUploadsFrom) }),
+    ...(body.acceptUploadsUntil === undefined
+      ? {}
+      : { acceptUploadsUntil: new Date(body.acceptUploadsUntil) }),
+    ...(body.maxFileSizeBytes === undefined ? {} : { maxFileSizeBytes: body.maxFileSizeBytes }),
+    ...(body.allowedMimeTypes === undefined ? {} : { allowedMimeTypes: body.allowedMimeTypes }),
+    ...(body.blockedExtensions === undefined ? {} : { blockedExtensions: body.blockedExtensions }),
+    ...(body.directAccessEnabled === undefined
+      ? {}
+      : { directAccessEnabled: body.directAccessEnabled }),
+    updatedBy: userId,
+  };
+}
+
+export const adminRoutes: FastifyPluginAsync = async (app) => {
+  const readGuards = [app.requireAuth, app.requireAdmin];
+  const writeGuards = [app.requireAuth, app.requireCsrf, app.requireAdmin];
+
+  app.get(
+    '/admin/dashboard',
+    { preHandler: readGuards, schema: { tags: ['admin'] } },
+    async () => {
+      const now = new Date();
+      const [
+        [eventCount],
+        [participantCount],
+        [submissionCount],
+        [artifactCount],
+        [storage],
+        latestUploads,
+        [failedUploads],
+      ] = await Promise.all([
+        app.db
+          .select({ value: count() })
+          .from(events)
+          .where(and(isNull(events.deletedAt), inArray(events.status, ['published', 'running']))),
+        app.db.select({ value: countDistinct(eventParticipants.userId) }).from(eventParticipants),
+        app.db
+          .select({ value: count() })
+          .from(submissions)
+          .where(isNull(submissions.deletedAt)),
+        app.db.select({ value: count() }).from(artifacts).where(isNull(artifacts.deletedAt)),
+        app.db
+          .select({
+            value: sum(sql`coalesce(${artifacts.actualSizeBytes}, ${artifacts.sizeBytes})`),
+          })
+          .from(artifacts)
+          .where(eq(artifacts.status, 'ready')),
+        app.db
+          .select({ artifact: artifacts, user: users, event: events })
+          .from(artifacts)
+          .innerJoin(users, eq(users.id, artifacts.userId))
+          .innerJoin(events, eq(events.id, artifacts.eventId))
+          .orderBy(desc(artifacts.createdAt))
+          .limit(10),
+        app.db
+          .select({ value: count() })
+          .from(artifacts)
+          .where(
+            or(
+              eq(artifacts.status, 'failed'),
+              and(eq(artifacts.status, 'uploading'), sql`${artifacts.createdAt} < ${now} - interval '1 hour'`),
+            ),
+          ),
+      ]);
+      return {
+        activeEvents: Number(eventCount?.value ?? 0),
+        participants: Number(participantCount?.value ?? 0),
+        submissions: Number(submissionCount?.value ?? 0),
+        artifacts: Number(artifactCount?.value ?? 0),
+        storageBytes: Number(storage?.value ?? 0),
+        failedUploads: Number(failedUploads?.value ?? 0),
+        latestUploads: latestUploads.map((row) => ({
+          ...serializeArtifact(row.artifact),
+          user: serializeUser(row.user),
+          event: serializeEvent(row.event),
+        })),
+      };
+    },
+  );
+
+  app.get(
+    '/admin/events',
+    { preHandler: readGuards, schema: { tags: ['admin', 'events'] } },
+    async (request) => {
+      const query = paginationQuerySchema.parse(request.query);
+      const conditions = [isNull(events.deletedAt)];
+      if (query.q) {
+        conditions.push(
+          or(
+            ilike(events.title, `%${query.q}%`),
+            ilike(events.shortCode, `%${query.q}%`),
+            ilike(events.organizer, `%${query.q}%`),
+          )!,
+        );
+      }
+      if (query.cursor) conditions.push(gt(events.id, query.cursor));
+      const rows = await app.db
+        .select()
+        .from(events)
+        .where(and(...conditions))
+        .orderBy(desc(events.createdAt), asc(events.id))
+        .limit(query.limit + 1);
+      const page = parseCursorPagination(rows, query.limit);
+      return { items: page.items.map(serializeEvent), nextCursor: page.nextCursor };
+    },
+  );
+
+  app.get(
+    '/admin/events/:eventId',
+    { preHandler: readGuards, schema: { tags: ['admin', 'events'] } },
+    async (request) => {
+      const { eventId } = request.params as { eventId: string };
+      const [event] = await app.db
+        .select()
+        .from(events)
+        .where(and(eq(events.id, eventId), isNull(events.deletedAt)))
+        .limit(1);
+      if (!event) throw new AppError('EVENT_NOT_FOUND', 'Мероприятие не найдено', 404);
+      return serializeEvent(event);
+    },
+  );
+
+  app.post(
+    '/admin/events',
+    { preHandler: writeGuards, schema: { tags: ['admin', 'events'] } },
+    async (request, reply) => {
+      const body = eventCreateSchema.parse(request.body);
+      const [event] = await app.db
+        .insert(events)
+        .values(createEventValues(body, request.currentUser!.id))
+        .returning();
+      if (!event) throw new Error('Event insert returned no row');
+      await writeAudit(request, {
+        action: 'event.create',
+        entityType: 'event',
+        entityId: event.id,
+        eventId: event.id,
+      });
+      return reply.code(201).send(serializeEvent(event));
+    },
+  );
+
+  app.patch(
+    '/admin/events/:eventId',
+    { preHandler: writeGuards, schema: { tags: ['admin', 'events'] } },
+    async (request) => {
+      const { eventId } = request.params as { eventId: string };
+      const body = eventUpdateSchema.parse(request.body);
+      const [event] = await app.db
+        .update(events)
+        .set(updateEventValues(body, request.currentUser!.id))
+        .where(and(eq(events.id, eventId), isNull(events.deletedAt)))
+        .returning();
+      if (!event) throw new AppError('EVENT_NOT_FOUND', 'Мероприятие не найдено', 404);
+      await writeAudit(request, {
+        action: 'event.update',
+        entityType: 'event',
+        entityId: event.id,
+        eventId: event.id,
+        metadata: { changedFields: Object.keys(body) },
+      });
+      return serializeEvent(event);
+    },
+  );
+
+  app.delete(
+    '/admin/events/:eventId',
+    { preHandler: writeGuards, schema: { tags: ['admin', 'events'] } },
+    async (request, reply) => {
+      const { eventId } = request.params as { eventId: string };
+      const [event] = await app.db
+        .update(events)
+        .set({
+          status: 'archived',
+          deletedAt: new Date(),
+          updatedBy: request.currentUser!.id,
+        })
+        .where(and(eq(events.id, eventId), isNull(events.deletedAt)))
+        .returning();
+      if (!event) throw new AppError('EVENT_NOT_FOUND', 'Мероприятие не найдено', 404);
+      await writeAudit(request, {
+        action: 'event.archive',
+        entityType: 'event',
+        entityId: event.id,
+        eventId: event.id,
+      });
+      return reply.code(204).send();
+    },
+  );
+
+  app.get(
+    '/admin/users',
+    { preHandler: readGuards, schema: { tags: ['admin', 'users'] } },
+    async (request) => {
+      const query = participantQuerySchema.parse(request.query);
+      const conditions = [];
+      if (query.eventId) conditions.push(eq(eventParticipants.eventId, query.eventId));
+      if (query.cursor) conditions.push(gt(users.id, query.cursor));
+      if (query.q) {
+        conditions.push(
+          or(
+            ilike(users.fullName, `%${query.q}%`),
+            ilike(users.telegramUsername, `%${query.q}%`),
+            ilike(users.organization, `%${query.q}%`),
+          )!,
+        );
+      }
+      const rows = await app.db
+        .select({
+          user: users,
+          joinedAt: sql<Date | null>`min(${eventParticipants.joinedAt})`,
+          lastSubmissionAt: sql<Date | null>`max(${eventParticipants.lastSubmissionAt})`,
+          submissionCount: countDistinct(submissions.id),
+          artifactCount: countDistinct(artifacts.id),
+          totalBytes: sql<number>`coalesce(sum(distinct ${artifacts.sizeBytes}), 0)`,
+        })
+        .from(users)
+        .leftJoin(eventParticipants, eq(eventParticipants.userId, users.id))
+        .leftJoin(
+          submissions,
+          and(
+            eq(submissions.userId, users.id),
+            query.eventId ? eq(submissions.eventId, query.eventId) : sql`true`,
+            isNull(submissions.deletedAt),
+          ),
+        )
+        .leftJoin(
+          artifacts,
+          and(
+            eq(artifacts.userId, users.id),
+            query.eventId ? eq(artifacts.eventId, query.eventId) : sql`true`,
+            isNull(artifacts.deletedAt),
+          ),
+        )
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .groupBy(users.id)
+        .orderBy(asc(users.id))
+        .limit(query.limit + 1);
+      const page = parseCursorPagination(
+        rows.map((row) => ({
+          ...serializeUser(row.user),
+          joinedAt: row.joinedAt,
+          lastSubmissionAt: row.lastSubmissionAt,
+          submissionCount: Number(row.submissionCount),
+          artifactCount: Number(row.artifactCount),
+          totalBytes: Number(row.totalBytes),
+        })),
+        query.limit,
+      );
+      return page;
+    },
+  );
+
+  app.get(
+    '/admin/submissions',
+    { preHandler: readGuards, schema: { tags: ['admin', 'submissions'] } },
+    async (request) => {
+      const query = participantQuerySchema.parse(request.query);
+      const conditions = [isNull(submissions.deletedAt)];
+      if (query.eventId) conditions.push(eq(submissions.eventId, query.eventId));
+      if (query.cursor) conditions.push(gt(submissions.id, query.cursor));
+      if (query.q) {
+        conditions.push(
+          or(
+            ilike(submissions.title, `%${query.q}%`),
+            ilike(submissions.text, `%${query.q}%`),
+            ilike(users.fullName, `%${query.q}%`),
+          )!,
+        );
+      }
+      const rows = await app.db
+        .select({
+          submission: submissions,
+          user: users,
+          event: events,
+          artifactCount: count(artifacts.id),
+        })
+        .from(submissions)
+        .innerJoin(users, eq(users.id, submissions.userId))
+        .innerJoin(events, eq(events.id, submissions.eventId))
+        .leftJoin(
+          artifacts,
+          and(eq(artifacts.submissionId, submissions.id), isNull(artifacts.deletedAt)),
+        )
+        .where(and(...conditions))
+        .groupBy(submissions.id, users.id, events.id)
+        .orderBy(desc(submissions.createdAt), asc(submissions.id))
+        .limit(query.limit + 1);
+      const page = parseCursorPagination(
+        rows.map((row) => ({
+          ...serializeSubmission(row.submission),
+          user: serializeUser(row.user),
+          event: serializeEvent(row.event),
+          artifactCount: Number(row.artifactCount),
+        })),
+        query.limit,
+      );
+      return page;
+    },
+  );
+
+  app.get(
+    '/admin/artifacts',
+    { preHandler: readGuards, schema: { tags: ['admin', 'artifacts'] } },
+    async (request) => {
+      const query = artifactQuerySchema.parse(request.query);
+      const conditions = [isNull(artifacts.deletedAt)];
+      if (query.eventId) conditions.push(eq(artifacts.eventId, query.eventId));
+      if (query.status) conditions.push(eq(artifacts.status, query.status));
+      if (query.cursor) conditions.push(gt(artifacts.id, query.cursor));
+      if (query.q) {
+        conditions.push(
+          or(
+            ilike(artifacts.originalName, `%${query.q}%`),
+            ilike(users.fullName, `%${query.q}%`),
+            ilike(events.title, `%${query.q}%`),
+          )!,
+        );
+      }
+      const rows = await app.db
+        .select({ artifact: artifacts, user: users, event: events })
+        .from(artifacts)
+        .innerJoin(users, eq(users.id, artifacts.userId))
+        .innerJoin(events, eq(events.id, artifacts.eventId))
+        .where(and(...conditions))
+        .orderBy(desc(artifacts.createdAt), asc(artifacts.id))
+        .limit(query.limit + 1);
+      const page = parseCursorPagination(
+        rows.map((row) => ({
+          ...serializeArtifact(row.artifact),
+          user: serializeUser(row.user),
+          event: serializeEvent(row.event),
+        })),
+        query.limit,
+      );
+      return page;
+    },
+  );
+
+  app.patch(
+    '/admin/artifacts/:artifactId',
+    { preHandler: writeGuards, schema: { tags: ['admin', 'artifacts'] } },
+    async (request) => {
+      const { artifactId } = request.params as { artifactId: string };
+      const body = statusUpdateSchema.parse(request.body);
+      const [artifact] = await app.db
+        .update(artifacts)
+        .set({
+          status: body.status,
+          statusReason: body.reason ?? null,
+          readyAt: body.status === 'ready' ? new Date() : null,
+          deletedAt: body.status === 'deleted' ? new Date() : null,
+        })
+        .where(eq(artifacts.id, artifactId))
+        .returning();
+      if (!artifact) throw new AppError('ARTIFACT_NOT_FOUND', 'Файл не найден', 404);
+      await writeAudit(request, {
+        action: 'artifact.status.change',
+        entityType: 'artifact',
+        entityId: artifact.id,
+        eventId: artifact.eventId,
+        metadata: { status: body.status, reason: body.reason ?? null },
+      });
+      return serializeArtifact(artifact);
+    },
+  );
+
+  app.get(
+    '/admin/audit',
+    { preHandler: readGuards, schema: { tags: ['admin', 'audit'] } },
+    async (request) => {
+      const query = paginationQuerySchema.parse(request.query);
+      const conditions = [];
+      if (query.q) {
+        conditions.push(
+          or(
+            ilike(auditLogs.action, `%${query.q}%`),
+            ilike(auditLogs.entityType, `%${query.q}%`),
+            ilike(auditLogs.entityId, `%${query.q}%`),
+          )!,
+        );
+      }
+      const rows = await app.db
+        .select()
+        .from(auditLogs)
+        .where(conditions.length ? and(...conditions) : undefined)
+        .orderBy(desc(auditLogs.createdAt))
+        .limit(query.limit);
+      return { items: rows, nextCursor: null };
+    },
+  );
+};

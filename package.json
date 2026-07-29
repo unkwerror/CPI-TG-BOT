@@ -1,0 +1,50 @@
+{
+  "name": "cpi-artifacts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Telegram Mini App for collecting event artifacts",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "npm run build -w @cpi/api && npm run build -w @cpi/worker && npm run build -w @cpi/bot && npm run build -w @cpi/web",
+    "dev": "concurrently -n api,worker,bot,web -c blue,magenta,green,cyan \"npm run dev -w @cpi/api\" \"npm run dev -w @cpi/worker\" \"npm run dev -w @cpi/bot\" \"npm run dev -w @cpi/web\"",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "lint": "eslint . --max-warnings=0",
+    "format:check": "prettier --check .",
+    "db:generate": "npm run db:generate -w @cpi/db",
+    "db:migrate": "npm run db:migrate -w @cpi/db",
+    "db:seed": "npm run db:seed -w @cpi/db"
+  },
+  "overrides": {
+    "@fastify/static": "10.1.2",
+    "brace-expansion": "5.0.8",
+    "next": {
+      "postcss": "8.5.24",
+      "sharp": "0.35.3"
+    },
+    "exceljs": {
+      "uuid": "11.1.1"
+    }
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.32.0",
+    "@playwright/test": "^1.55.0",
+    "@types/node": "^24.1.0",
+    "concurrently": "^9.2.0",
+    "eslint": "^9.32.0",
+    "eslint-config-next": "^16.2.12",
+    "prettier": "^3.6.2",
+    "tsx": "^4.20.3",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.38.0",
+    "vitest": "^4.1.10"
+  }
+}
