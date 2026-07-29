@@ -89,16 +89,9 @@ export const eventRoutes: FastifyPluginAsync = async (app) => {
     { preHandler: app.requireAuth, schema: { tags: ['submissions'] } },
     async (request) => {
       const { eventId } = request.params as { eventId: string };
-      const rows = await app.db
-        .select({
-          submission: submissions,
-          artifactCount: sql<number>`count(${artifacts.id})::int`,
-        })
+      const ownSubmissions = await app.db
+        .select()
         .from(submissions)
-        .leftJoin(
-          artifacts,
-          and(eq(artifacts.submissionId, submissions.id), isNull(artifacts.deletedAt)),
-        )
         .where(
           and(
             eq(submissions.eventId, eventId),
@@ -106,13 +99,36 @@ export const eventRoutes: FastifyPluginAsync = async (app) => {
             isNull(submissions.deletedAt),
           ),
         )
-        .groupBy(submissions.id)
         .orderBy(desc(submissions.createdAt))
         .limit(100);
+
+      if (ownSubmissions.length === 0) return { items: [] };
+
+      const files = await app.db
+        .select()
+        .from(artifacts)
+        .where(
+          and(
+            inArray(
+              artifacts.submissionId,
+              ownSubmissions.map((submission) => submission.id),
+            ),
+            eq(artifacts.userId, request.currentUser!.id),
+            isNull(artifacts.deletedAt),
+          ),
+        )
+        .orderBy(desc(artifacts.createdAt));
+      const filesBySubmission = new Map<string, typeof files>();
+      for (const artifact of files) {
+        const grouped = filesBySubmission.get(artifact.submissionId);
+        if (grouped) grouped.push(artifact);
+        else filesBySubmission.set(artifact.submissionId, [artifact]);
+      }
+
       return {
-        items: rows.map((row) => ({
-          ...serializeSubmission(row.submission),
-          artifactCount: row.artifactCount,
+        items: ownSubmissions.map((submission) => ({
+          ...serializeSubmission(submission),
+          artifacts: (filesBySubmission.get(submission.id) ?? []).map(serializeArtifact),
         })),
       };
     },

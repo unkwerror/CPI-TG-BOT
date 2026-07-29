@@ -8,6 +8,7 @@ import { NOVOSIBIRSK_LABEL, formatNovosibirskDateTime } from '../lib/dates';
 import type { EventItem } from '../lib/types';
 import { ArrowIcon, CalendarIcon, FilesIcon, UploadIcon, UserIcon } from './icons';
 import { CatAssistant } from './cat-assistant';
+import { EventSubmissions } from './event-submissions';
 import { EventsView } from './events-view';
 import { MineView } from './mine-view';
 import { ProfileView } from './profile-view';
@@ -22,6 +23,7 @@ export function MiniApp() {
   const [selectedEvent, setSelectedEvent] = useState<EventItem | null>(null);
   const [compose, setCompose] = useState(false);
   const [directEvent, setDirectEvent] = useState<EventItem | null>(null);
+  const [submissionsRevision, setSubmissionsRevision] = useState(0);
 
   useEffect(() => {
     const requestedTab = new URLSearchParams(window.location.search).get('tab');
@@ -107,6 +109,7 @@ export function MiniApp() {
             setDirectEvent(null);
           }}
           onAdd={() => setCompose(true)}
+          submissionsRevision={submissionsRevision}
         />
       ) : tab === 'events' ? (
         <EventsView onSelect={openEvent} initialEvent={directEvent} />
@@ -155,7 +158,7 @@ export function MiniApp() {
         <SubmissionSheet
           event={selectedEvent}
           onClose={() => setCompose(false)}
-          onSuccess={() => undefined}
+          onSuccess={() => setSubmissionsRevision((revision) => revision + 1)}
         />
       ) : null}
     </main>
@@ -166,10 +169,12 @@ function EventDetail({
   event,
   onBack,
   onAdd,
+  submissionsRevision,
 }: {
   event: EventItem;
   onBack: () => void;
   onAdd: () => void;
+  submissionsRevision: number;
 }) {
   return (
     <section className="screen event-detail">
@@ -196,6 +201,7 @@ function EventDetail({
         <h1>{event.title}</h1>
         <p>{event.description}</p>
       </div>
+      <EventSubmissions eventId={event.id} refreshRevision={submissionsRevision} />
       <Card className="detail-grid">
         <div>
           <span>Начало</span>
@@ -236,7 +242,7 @@ function EventDetail({
         message={
           event.acceptsUploads
             ? 'Можно отправить файл, ссылку или заметку. Черновик сохранится, если отвлечётесь.'
-            : 'Приём уже завершён. Ваши прежние отправки остаются в разделе «Мои материалы».'
+            : 'Приём уже завершён. Все ваши прежние отправки показаны выше.'
         }
       />
       {event.tags.length ? (

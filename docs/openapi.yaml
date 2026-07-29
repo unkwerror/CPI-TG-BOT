@@ -135,7 +135,7 @@ paths:
   /api/v1/events/{eventId}/submissions:
     get:
       tags: [submissions]
-      summary: Свои отправки в мероприятие
+      summary: Свои отправки и артефакты в мероприятие
       parameters:
         - { $ref: '#/components/parameters/EventId' }
       responses:

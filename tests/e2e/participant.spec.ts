@@ -21,6 +21,10 @@ test('участник ищет мероприятие и отправляет �
     timeout: 30_000,
   });
   await page.getByRole('button', { name: 'Готово' }).click();
+  await expect(page.getByRole('heading', { name: 'Уже отправлено' })).toBeVisible();
+  await expect(page.getByText('Материалы Playwright')).toBeVisible();
+  await expect(page.getByText('playwright-note.txt')).toBeVisible();
+  await page.getByRole('button', { name: '← Мероприятия' }).click();
   await page.getByRole('button', { name: /Мои материалы/ }).click();
   await expect(page.getByText('Материалы Playwright')).toBeVisible();
 });
