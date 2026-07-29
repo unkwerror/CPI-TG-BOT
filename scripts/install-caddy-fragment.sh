@@ -57,10 +57,12 @@ else
     cat "$rendered"
   } > "$merged"
 fi
-mv "$merged" "$host_caddyfile"
+# Preserve the inode: production Caddy bind-mounts this file read-only, and
+# replacing it with mv would leave the running container on the old inode.
+cat "$merged" > "$host_caddyfile"
 
 if ! docker exec "$caddy_container" caddy validate --config /etc/caddy/Caddyfile; then
-  cp "$backup" "$host_caddyfile"
+  cat "$backup" > "$host_caddyfile"
   echo "Caddy validation failed; original configuration restored from $backup" >&2
   exit 1
 fi
