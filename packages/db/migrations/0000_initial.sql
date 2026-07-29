@@ -82,6 +82,7 @@ CREATE TABLE "events" (
   "format" "event_format" DEFAULT 'offline' NOT NULL,
   "status" "event_status" DEFAULT 'draft' NOT NULL,
   "tags" text[] DEFAULT ARRAY[]::text[] NOT NULL,
+  "search_text" text DEFAULT '' NOT NULL,
   "cover_url" text,
   "accept_uploads_from" timestamptz NOT NULL,
   "accept_uploads_until" timestamptz NOT NULL,
@@ -110,8 +111,25 @@ CREATE INDEX "events_city_idx" ON "events" ("city");
 --> statement-breakpoint
 CREATE INDEX "events_acceptance_idx" ON "events" ("accept_uploads_from", "accept_uploads_until");
 --> statement-breakpoint
-CREATE INDEX "events_search_trgm_idx" ON "events"
-  USING gin ((coalesce("title",'') || ' ' || coalesce("organizer",'') || ' ' || coalesce("city",'') || ' ' || coalesce("short_code",'') || ' ' || array_to_string("tags",' ')) gin_trgm_ops);
+CREATE INDEX "events_search_trgm_idx" ON "events" USING gin ("search_text" gin_trgm_ops);
+--> statement-breakpoint
+CREATE OR REPLACE FUNCTION set_event_search_text() RETURNS trigger AS $$
+BEGIN
+  NEW.search_text = concat_ws(
+    ' ',
+    NEW.title,
+    NEW.organizer,
+    NEW.city,
+    NEW.short_code,
+    array_to_string(NEW.tags, ' ')
+  );
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+--> statement-breakpoint
+CREATE TRIGGER events_set_search_text
+  BEFORE INSERT OR UPDATE OF title, organizer, city, short_code, tags ON "events"
+  FOR EACH ROW EXECUTE FUNCTION set_event_search_text();
 --> statement-breakpoint
 
 CREATE TABLE "event_tags" (

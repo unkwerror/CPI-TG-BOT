@@ -7,6 +7,7 @@ type ArtifactRow = typeof artifacts.$inferSelect;
 type ExportRow = typeof exportJobs.$inferSelect;
 
 export function serializeEvent(event: EventRow) {
+  const { searchText: _searchText, ...publicEvent } = event;
   const now = new Date();
   const acceptsUploads =
     event.deletedAt == null &&
@@ -14,7 +15,7 @@ export function serializeEvent(event: EventRow) {
     now >= event.acceptUploadsFrom &&
     now <= event.acceptUploadsUntil;
   return {
-    ...event,
+    ...publicEvent,
     maxFileSizeBytes: Number(event.maxFileSizeBytes),
     acceptsUploads,
   };

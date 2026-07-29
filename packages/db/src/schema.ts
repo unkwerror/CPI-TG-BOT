@@ -106,6 +106,7 @@ export const events = pgTable(
     format: eventFormatEnum('format').notNull().default('offline'),
     status: eventStatusEnum('status').notNull().default('draft'),
     tags: text('tags').array().notNull().default(sql`ARRAY[]::text[]`),
+    searchText: text('search_text').notNull().default(''),
     coverUrl: text('cover_url'),
     acceptUploadsFrom: timestamp('accept_uploads_from', { withTimezone: true }).notNull(),
     acceptUploadsUntil: timestamp('accept_uploads_until', { withTimezone: true }).notNull(),

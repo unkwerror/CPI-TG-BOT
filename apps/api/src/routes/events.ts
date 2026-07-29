@@ -34,15 +34,7 @@ export const eventRoutes: FastifyPluginAsync = async (app) => {
       ];
       if (query.q) {
         const pattern = `%${query.q}%`;
-        conditions.push(
-          sql<boolean>`(
-            ${events.title} ILIKE ${pattern}
-            OR ${events.organizer} ILIKE ${pattern}
-            OR coalesce(${events.city}, '') ILIKE ${pattern}
-            OR ${events.shortCode} ILIKE ${pattern}
-            OR array_to_string(${events.tags}, ' ') ILIKE ${pattern}
-          )`,
-        );
+        conditions.push(sql<boolean>`${events.searchText} ILIKE ${pattern}`);
       }
       if (query.city) conditions.push(eq(events.city, query.city));
       if (query.format) conditions.push(eq(events.format, query.format));
