@@ -2314,6 +2314,18 @@ h2 {
   font-size: 13px;
 }
 
+.export-download-link {
+  flex-basis: 100%;
+  width: fit-content;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--primary);
+  color: var(--primary-text);
+  font-size: 13px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
 .admin-toolbar select,
 .admin-search,
 .export-create select {

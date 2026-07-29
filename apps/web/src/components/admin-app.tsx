@@ -22,6 +22,25 @@ interface DashboardData {
   latestUploads: Array<ArtifactItem & { user: CurrentUser; event: EventItem }>;
 }
 
+function openDownloadUrl(url: string): void {
+  try {
+    const telegram = window.Telegram?.WebApp;
+    if (telegram?.openLink) {
+      telegram.openLink(url, { try_instant_view: false });
+      return;
+    }
+  } catch {
+    // Continue with a regular browser link when the Telegram client rejects it.
+  }
+  const link = document.createElement('a');
+  link.href = url;
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  document.body.append(link);
+  link.click();
+  link.remove();
+}
+
 export function AdminApp() {
   const { user, loading, error } = useSession();
   const [tab, setTab] = useState<AdminTab>('dashboard');
@@ -673,7 +692,7 @@ function Artifacts({
   useEffect(() => void load(), [load]);
   const download = async (id: string) => {
     const result = await api<{ url: string }>(`/artifacts/${id}/download`);
-    window.location.assign(result.url);
+    openDownloadUrl(result.url);
   };
   const changeStatus = async (id: string, next: ArtifactStatus) => {
     await api(`/admin/artifacts/${id}`, {
@@ -741,6 +760,7 @@ function Exports({
 }) {
   const [jobs, setJobs] = useState<ExportJob[]>([]);
   const [message, setMessage] = useState<string | null>(null);
+  const [manualDownloadUrl, setManualDownloadUrl] = useState<string | null>(null);
   const load = useCallback(async () => {
     const result = await api<{ items: ExportJob[] }>(
       `/admin/exports${eventId ? `?eventId=${eventId}` : ''}`,
@@ -763,8 +783,16 @@ function Exports({
     }
   };
   const download = async (id: string) => {
-    const result = await api<{ url: string }>(`/admin/exports/${id}/download`);
-    window.location.assign(result.url);
+    setMessage('Открываем файл во внешнем браузере…');
+    setManualDownloadUrl(null);
+    try {
+      const result = await api<{ url: string }>(`/admin/exports/${id}/download`);
+      setManualDownloadUrl(result.url);
+      openDownloadUrl(result.url);
+      setMessage('Файл открыт. Если окно не появилось, нажмите ссылку ниже.');
+    } catch (caught) {
+      setMessage(caught instanceof Error ? caught.message : 'Не удалось скачать выгрузку');
+    }
   };
   return (
     <>
@@ -791,6 +819,16 @@ function Exports({
         </div>
         {!eventId ? <p className="export-hint">Сначала выберите мероприятие.</p> : null}
         {message ? <p className="export-hint">{message}</p> : null}
+        {manualDownloadUrl ? (
+          <a
+            className="export-download-link"
+            href={manualDownloadUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Открыть готовый файл
+          </a>
+        ) : null}
       </Card>
       <Card className="admin-table-card">
         <Table headings={['Формат', 'Создан', 'Статус', 'Прогресс', 'Размер', 'Действие']}>
