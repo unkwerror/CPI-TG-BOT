@@ -35,7 +35,9 @@ services:
       APP_DB_USER: ${APP_DB_USER}
       APP_DB_PASSWORD: ${APP_DB_PASSWORD}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # PostgreSQL 18 stores data in a versioned subdirectory and requires the
+      # volume at the parent path for safe pg_upgrade --link.
+      - postgres_data:/var/lib/postgresql
       - ./infra/postgres/init-runtime-user.sh:/docker-entrypoint-initdb.d/10-runtime-user.sh:ro
     ports:
       - "127.0.0.1:5433:5432"
