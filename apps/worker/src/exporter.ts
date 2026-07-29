@@ -4,11 +4,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
 import { once } from 'node:events';
-import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import type archiver from 'archiver';
 import * as archiverModule from 'archiver';
-import { and, asc, eq, gt, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 import { artifacts, eventParticipants, events, exportJobs, submissions, users } from '@cpi/db';
 import { safeZipSegment } from '@cpi/shared';
 import type { WorkerContext } from './context';
@@ -370,7 +370,7 @@ async function appendReadable(
   await ended;
 }
 
-async function buildZip(
+export async function buildZip(
   context: WorkerContext,
   input: {
     event: typeof events.$inferSelect;
@@ -384,10 +384,6 @@ async function buildZip(
   },
 ): Promise<number> {
   const output = new PassThrough();
-  let bytes = 0;
-  output.on('data', (chunk: Buffer) => {
-    bytes += chunk.length;
-  });
   const upload = new Upload({
     client: context.s3,
     params: {
@@ -403,86 +399,109 @@ async function buildZip(
   archive.on('warning', (error) => context.logger.warn({ error }, 'ZIP warning'));
   archive.pipe(output);
 
-  const root = safeZipSegment(input.event.title);
-  await appendReadable(
-    archive,
-    createReadStream(input.participantWorkbookPath),
-    `${root}/Реестр_участников.xlsx`,
-  );
-  await appendReadable(
-    archive,
-    createReadStream(input.artifactWorkbookPath),
-    `${root}/Реестр_артефактов.xlsx`,
-  );
-
-  const submissionDirectories = new Map<string, string>();
-  for (const submission of input.submissionRows) {
-    const person = safeZipSegment(
-      `${submission.fullName ?? 'Без имени'}_${submission.telegramUserId}`,
-      submission.telegramUserId,
+  const produceArchive = async () => {
+    const root = safeZipSegment(input.event.title);
+    await appendReadable(
+      archive,
+      createReadStream(input.participantWorkbookPath),
+      `${root}/Реестр_участников.xlsx`,
     );
-    const stamp = submission.createdAt.toISOString().replaceAll(':', '-');
-    const directory = `${root}/Артефакты/${person}/submission_${stamp}_${submission.id.slice(0, 8)}`;
-    submissionDirectories.set(submission.id, directory);
-    if (submission.text) {
-      archive.append(Buffer.from(submission.text, 'utf8'), {
-        name: `${directory}/text.txt`,
-      });
-    }
-    archive.append(
-      Buffer.from(
-        JSON.stringify(
-          {
-            submissionId: submission.id,
-            title: submission.title,
-            text: submission.text,
-            link: submission.link,
-            status: submission.status,
-            userId: submission.userId,
-            telegramUserId: submission.telegramUserId,
-            createdAt: submission.createdAt.toISOString(),
-          },
-          null,
-          2,
+    await appendReadable(
+      archive,
+      createReadStream(input.artifactWorkbookPath),
+      `${root}/Реестр_артефактов.xlsx`,
+    );
+
+    const submissionDirectories = new Map<string, string>();
+    for (const submission of input.submissionRows) {
+      const person = safeZipSegment(
+        `${submission.fullName ?? 'Без имени'}_${submission.telegramUserId}`,
+        submission.telegramUserId,
+      );
+      const stamp = submission.createdAt.toISOString().replaceAll(':', '-');
+      const directory = `${root}/Артефакты/${person}/submission_${stamp}_${submission.id.slice(0, 8)}`;
+      submissionDirectories.set(submission.id, directory);
+      if (submission.text) {
+        archive.append(Buffer.from(submission.text, 'utf8'), {
+          name: `${directory}/text.txt`,
+        });
+      }
+      archive.append(
+        Buffer.from(
+          JSON.stringify(
+            {
+              submissionId: submission.id,
+              title: submission.title,
+              text: submission.text,
+              link: submission.link,
+              status: submission.status,
+              userId: submission.userId,
+              telegramUserId: submission.telegramUserId,
+              createdAt: submission.createdAt.toISOString(),
+            },
+            null,
+            2,
+          ),
+          'utf8',
         ),
-        'utf8',
-      ),
-      { name: `${directory}/metadata.json` },
-    );
-  }
-
-  for (const [index, artifact] of input.artifactRows.entries()) {
-    const submissionDirectory = submissionDirectories.get(artifact.submissionId);
-    if (!submissionDirectory) {
-      context.logger.warn(
-        { artifactId: artifact.id, submissionId: artifact.submissionId },
-        'Artifact has no exportable submission',
+        { name: `${directory}/metadata.json` },
       );
-      continue;
     }
-    if (artifact.status === 'ready') {
-      const object = await context.s3.send(
-        new GetObjectCommand({ Bucket: artifact.bucket, Key: artifact.objectKey }),
-      );
-      if (object.Body && Symbol.asyncIterator in object.Body) {
-        const readable = Readable.from(object.Body as AsyncIterable<Uint8Array>);
-        await appendReadable(
-          archive,
-          readable,
-          `${submissionDirectory}/${safeZipSegment(artifact.displayName, 'file')}`,
+
+    for (const [index, artifact] of input.artifactRows.entries()) {
+      const submissionDirectory = submissionDirectories.get(artifact.submissionId);
+      if (!submissionDirectory) {
+        context.logger.warn(
+          { artifactId: artifact.id, submissionId: artifact.submissionId },
+          'Artifact has no exportable submission',
+        );
+        continue;
+      }
+      if (artifact.status === 'ready') {
+        const object = await context.s3.send(
+          new GetObjectCommand({ Bucket: artifact.bucket, Key: artifact.objectKey }),
+        );
+        if (object.Body && Symbol.asyncIterator in object.Body) {
+          const readable = Readable.from(object.Body as AsyncIterable<Uint8Array>);
+          await appendReadable(
+            archive,
+            readable,
+            `${submissionDirectory}/${safeZipSegment(artifact.displayName, 'file')}`,
+          );
+        }
+      }
+      if (index % 10 === 0) {
+        await input.onProgress(
+          20 + Math.floor(((index + 1) / Math.max(input.artifactRows.length, 1)) * 70),
         );
       }
     }
-    if (index % 10 === 0) {
-      await input.onProgress(
-        20 + Math.floor(((index + 1) / Math.max(input.artifactRows.length, 1)) * 70),
-      );
-    }
+
+    await archive.finalize();
+  };
+
+  try {
+    await Promise.all([upload.done(), produceArchive()]);
+  } catch (error) {
+    archive.abort();
+    output.destroy();
+    throw error;
   }
 
-  await archive.finalize();
-  await upload.done();
-  return bytes;
+  const generatedBytes = archive.pointer();
+  const storedObject = await context.s3.send(
+    new HeadObjectCommand({
+      Bucket: context.config.S3_EXPORT_BUCKET,
+      Key: input.objectKey,
+    }),
+  );
+  const storedBytes = Number(storedObject.ContentLength ?? -1);
+  if (generatedBytes <= 0 || storedBytes !== generatedBytes) {
+    throw new Error(
+      `ZIP upload size mismatch: generated ${generatedBytes} bytes, stored ${storedBytes} bytes`,
+    );
+  }
+  return storedBytes;
 }
 
 export async function buildExport(context: WorkerContext, exportJobId: string): Promise<void> {
@@ -494,19 +513,39 @@ export async function buildExport(context: WorkerContext, exportJobId: string): 
     .limit(1);
   if (!jobContext || jobContext.job.status === 'ready') return;
 
+  const objectKey = `${jobContext.event.id}/${jobContext.job.id}.${jobContext.job.kind}`;
+  if (jobContext.job.status === 'expired') {
+    await context.s3.send(
+      new DeleteObjectCommand({
+        Bucket: context.config.S3_EXPORT_BUCKET,
+        Key: objectKey,
+      }),
+    );
+    return;
+  }
+
+  const [started] = await context.db
+    .update(exportJobs)
+    .set({ status: 'processing', progress: 1, startedAt: new Date(), errorMessage: null })
+    .where(
+      and(
+        eq(exportJobs.id, exportJobId),
+        inArray(exportJobs.status, ['queued', 'processing', 'failed']),
+      ),
+    )
+    .returning({ id: exportJobs.id });
+  if (!started) return;
+
   const temporaryDirectory = await mkdtemp(path.join(tmpdir(), `cpi-export-${exportJobId}-`));
   const participantPath = path.join(temporaryDirectory, 'participants.xlsx');
   const artifactPath = path.join(temporaryDirectory, 'artifacts.xlsx');
   const outputPath = path.join(temporaryDirectory, `export.${jobContext.job.kind}`);
-  const objectKey = `${jobContext.event.id}/${jobContext.job.id}.${jobContext.job.kind}`;
   const updateProgress = async (progress: number) => {
-    await context.db.update(exportJobs).set({ progress }).where(eq(exportJobs.id, exportJobId));
+    await context.db
+      .update(exportJobs)
+      .set({ progress })
+      .where(and(eq(exportJobs.id, exportJobId), eq(exportJobs.status, 'processing')));
   };
-
-  await context.db
-    .update(exportJobs)
-    .set({ status: 'processing', progress: 1, startedAt: new Date(), errorMessage: null })
-    .where(eq(exportJobs.id, exportJobId));
 
   try {
     const [participantRows, artifactRows, submissionRows] = await Promise.all([
@@ -549,7 +588,7 @@ export async function buildExport(context: WorkerContext, exportJobId: string): 
     }
 
     const expiresAt = new Date(Date.now() + context.config.EXPORT_RETENTION_HOURS * 60 * 60 * 1000);
-    await context.db
+    const [completed] = await context.db
       .update(exportJobs)
       .set({
         status: 'ready',
@@ -560,13 +599,22 @@ export async function buildExport(context: WorkerContext, exportJobId: string): 
         completedAt: new Date(),
         expiresAt,
       })
-      .where(eq(exportJobs.id, exportJobId));
+      .where(and(eq(exportJobs.id, exportJobId), eq(exportJobs.status, 'processing')))
+      .returning({ id: exportJobs.id });
+    if (!completed) {
+      await context.s3.send(
+        new DeleteObjectCommand({
+          Bucket: context.config.S3_EXPORT_BUCKET,
+          Key: objectKey,
+        }),
+      );
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await context.db
       .update(exportJobs)
       .set({ status: 'failed', errorMessage: message.slice(0, 2_000) })
-      .where(eq(exportJobs.id, exportJobId));
+      .where(and(eq(exportJobs.id, exportJobId), eq(exportJobs.status, 'processing')));
     throw error;
   } finally {
     await rm(temporaryDirectory, { recursive: true, force: true });

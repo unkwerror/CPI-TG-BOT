@@ -127,6 +127,9 @@ export function AdminApp() {
               setEventId(id);
               setTab('exports');
             }}
+            onDeletedEvent={(id) => {
+              setEventId((current) => (current === id ? '' : current));
+            }}
           />
         ) : null}
         {tab === 'participants' ? (
@@ -317,9 +320,17 @@ function eventToForm(event: EventItem): EventFormState {
   };
 }
 
-function EventManagement({ onChooseEvent }: { onChooseEvent: (id: string) => void }) {
+function EventManagement({
+  onChooseEvent,
+  onDeletedEvent,
+}: {
+  onChooseEvent: (id: string) => void;
+  onDeletedEvent: (id: string) => void;
+}) {
   const [events, setEvents] = useState<EventItem[]>([]);
   const [editing, setEditing] = useState<EventItem | null>(null);
+  const [deleteCandidate, setDeleteCandidate] = useState<EventItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<EventFormState>(blankEvent);
   const [message, setMessage] = useState<string | null>(null);
@@ -377,6 +388,23 @@ function EventManagement({ onChooseEvent }: { onChooseEvent: (id: string) => voi
       await load();
     } catch (caught) {
       setMessage(caught instanceof Error ? caught.message : 'Не удалось сохранить мероприятие');
+    }
+  };
+
+  const remove = async () => {
+    if (!deleteCandidate || deleting) return;
+    setDeleting(true);
+    setMessage(null);
+    try {
+      await api(`/admin/events/${deleteCandidate.id}`, { method: 'DELETE' });
+      onDeletedEvent(deleteCandidate.id);
+      setDeleteCandidate(null);
+      setMessage('Мероприятие и все его файлы удалены');
+      await load();
+    } catch (caught) {
+      setMessage(caught instanceof Error ? caught.message : 'Не удалось удалить мероприятие');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -537,6 +565,7 @@ function EventManagement({ onChooseEvent }: { onChooseEvent: (id: string) => voi
           type="button"
           onClick={() => {
             setEditing(null);
+            setDeleteCandidate(null);
             setForm(blankEvent());
             setShowForm(true);
           }}
@@ -544,6 +573,35 @@ function EventManagement({ onChooseEvent }: { onChooseEvent: (id: string) => voi
           Создать мероприятие
         </Button>
       </div>
+      {message ? (
+        <div className={`notice ${message.includes('удалены') ? 'success' : 'error'}`}>
+          {message}
+        </div>
+      ) : null}
+      {deleteCandidate ? (
+        <Card className="event-delete-confirm">
+          <div>
+            <h2>Удалить «{deleteCandidate.title}»?</h2>
+            <p>
+              Мероприятие исчезнет из приложения. Все артефакты, незавершённые загрузки и готовые
+              выгрузки будут безвозвратно удалены из хранилища.
+            </p>
+          </div>
+          <div className="row-actions">
+            <Button type="button" disabled={deleting} onClick={() => setDeleteCandidate(null)}>
+              Отмена
+            </Button>
+            <Button
+              className="danger-button"
+              type="button"
+              disabled={deleting}
+              onClick={() => void remove()}
+            >
+              {deleting ? 'Удаляем файлы…' : 'Удалить мероприятие и файлы'}
+            </Button>
+          </div>
+        </Card>
+      ) : null}
       <div className="admin-card-grid">
         {events.map((event) => (
           <Card className="admin-event-card" key={event.id}>
@@ -566,12 +624,20 @@ function EventManagement({ onChooseEvent }: { onChooseEvent: (id: string) => voi
               <Button
                 type="button"
                 onClick={() => {
+                  setDeleteCandidate(null);
                   setEditing(event);
                   setForm(eventToForm(event));
                   setShowForm(true);
                 }}
               >
                 Изменить
+              </Button>
+              <Button
+                className="danger-text-button"
+                type="button"
+                onClick={() => setDeleteCandidate(event)}
+              >
+                Удалить
               </Button>
             </div>
           </Card>

@@ -29,10 +29,18 @@ export async function verifyArtifact(context: WorkerContext, artifactId: string)
     throw new Error(`Artifact ${artifactId} is in ${artifact.status} state`);
   }
 
-  await context.db
+  const [started] = await context.db
     .update(artifacts)
     .set({ status: 'verifying', statusReason: null })
-    .where(and(eq(artifacts.id, artifact.id), ne(artifacts.status, 'ready')));
+    .where(
+      and(
+        eq(artifacts.id, artifact.id),
+        isNull(artifacts.deletedAt),
+        ne(artifacts.status, 'ready'),
+      ),
+    )
+    .returning({ id: artifacts.id });
+  if (!started) return;
 
   try {
     const head = await context.s3.send(
@@ -62,15 +70,18 @@ export async function verifyArtifact(context: WorkerContext, artifactId: string)
     });
     if (!policy.allowed) throw new Error(policy.reason);
     if (policy.requiresQuarantine && context.config.FILE_VERIFICATION_MODE !== 'clamav') {
-      await context.db
+      const [quarantined] = await context.db
         .update(artifacts)
         .set({
           status: 'quarantined',
           actualSizeBytes: actualSize,
           statusReason: 'Опасный исполняемый формат оставлен в карантине: ClamAV не подключён',
         })
-        .where(eq(artifacts.id, artifact.id));
-      await markSubmissionFailed(context, artifact.submissionId, artifact.id);
+        .where(and(eq(artifacts.id, artifact.id), isNull(artifacts.deletedAt)))
+        .returning({ id: artifacts.id });
+      if (quarantined) {
+        await markSubmissionFailed(context, artifact.submissionId, artifact.id);
+      }
       return;
     }
 
@@ -90,7 +101,7 @@ export async function verifyArtifact(context: WorkerContext, artifactId: string)
     );
     const checksum = hash.digest('hex');
     if (!scan.clean) {
-      await context.db
+      const [quarantined] = await context.db
         .update(artifacts)
         .set({
           status: 'quarantined',
@@ -98,8 +109,11 @@ export async function verifyArtifact(context: WorkerContext, artifactId: string)
           checksumSha256: checksum,
           statusReason: `Антивирус обнаружил угрозу: ${scan.response.slice(0, 500)}`,
         })
-        .where(eq(artifacts.id, artifact.id));
-      await markSubmissionFailed(context, artifact.submissionId, artifact.id);
+        .where(and(eq(artifacts.id, artifact.id), isNull(artifacts.deletedAt)))
+        .returning({ id: artifacts.id });
+      if (quarantined) {
+        await markSubmissionFailed(context, artifact.submissionId, artifact.id);
+      }
       return;
     }
 
@@ -121,8 +135,8 @@ export async function verifyArtifact(context: WorkerContext, artifactId: string)
       new DeleteObjectCommand({ Bucket: artifact.bucket, Key: artifact.objectKey }),
     );
 
-    await context.db.transaction(async (transaction) => {
-      await transaction
+    const promoted = await context.db.transaction(async (transaction) => {
+      const [updated] = await transaction
         .update(artifacts)
         .set({
           bucket: context.config.S3_PRIVATE_BUCKET,
@@ -132,7 +146,9 @@ export async function verifyArtifact(context: WorkerContext, artifactId: string)
           statusReason: null,
           readyAt: new Date(),
         })
-        .where(eq(artifacts.id, artifact.id));
+        .where(and(eq(artifacts.id, artifact.id), isNull(artifacts.deletedAt)))
+        .returning({ id: artifacts.id });
+      if (!updated) return false;
       const notReady = await transaction
         .select({ id: artifacts.id })
         .from(artifacts)
@@ -160,13 +176,24 @@ export async function verifyArtifact(context: WorkerContext, artifactId: string)
           })
           .onConflictDoNothing();
       }
+      return true;
     });
+    if (!promoted) {
+      await context.s3.send(
+        new DeleteObjectCommand({
+          Bucket: context.config.S3_PRIVATE_BUCKET,
+          Key: artifact.objectKey,
+        }),
+      );
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await context.db
+    const [failed] = await context.db
       .update(artifacts)
       .set({ status: 'failed', statusReason: message.slice(0, 2_000) })
-      .where(eq(artifacts.id, artifact.id));
+      .where(and(eq(artifacts.id, artifact.id), isNull(artifacts.deletedAt)))
+      .returning({ id: artifacts.id });
+    if (!failed) return;
     await markSubmissionFailed(context, artifact.submissionId, artifact.id);
     throw error;
   }
@@ -178,10 +205,12 @@ async function markSubmissionFailed(
   artifactId: string,
 ): Promise<void> {
   await context.db.transaction(async (transaction) => {
-    await transaction
+    const [submission] = await transaction
       .update(submissions)
       .set({ status: 'failed' })
-      .where(eq(submissions.id, submissionId));
+      .where(and(eq(submissions.id, submissionId), isNull(submissions.deletedAt)))
+      .returning({ id: submissions.id });
+    if (!submission) return;
     await transaction
       .insert(outboxEvents)
       .values({

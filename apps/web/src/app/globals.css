@@ -2373,6 +2373,39 @@ h2 {
   font-size: 13px;
 }
 
+.event-delete-confirm {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 16px;
+  padding: 18px;
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--border));
+  background: color-mix(in srgb, var(--danger) 5%, var(--surface));
+}
+
+.event-delete-confirm h2 {
+  margin-bottom: 5px;
+}
+
+.event-delete-confirm p {
+  max-width: 720px;
+  margin-bottom: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.row-actions .danger-button {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: #fff;
+}
+
+.row-actions .danger-text-button {
+  border-color: color-mix(in srgb, var(--danger) 28%, var(--border));
+  color: var(--danger);
+}
+
 .row-actions {
   display: flex;
   flex-wrap: wrap;
@@ -2500,7 +2533,8 @@ h2 {
   }
 
   .admin-toolbar,
-  .export-create {
+  .export-create,
+  .event-delete-confirm {
     align-items: stretch;
     flex-direction: column;
   }

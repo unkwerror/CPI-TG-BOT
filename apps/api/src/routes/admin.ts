@@ -16,7 +16,15 @@ import {
   sql,
   sum,
 } from 'drizzle-orm';
-import { artifacts, auditLogs, eventParticipants, events, submissions, users } from '@cpi/db';
+import {
+  artifacts,
+  auditLogs,
+  eventParticipants,
+  events,
+  exportJobs,
+  submissions,
+  users,
+} from '@cpi/db';
 import {
   AppError,
   artifactStatuses,
@@ -32,6 +40,7 @@ import {
   serializeSubmission,
   serializeUser,
 } from '../serializers';
+import { purgeEventStorage } from '../event-storage';
 
 const participantQuerySchema = paginationQuerySchema.extend({
   eventId: z.uuid().optional(),
@@ -263,21 +272,82 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     { preHandler: writeGuards, schema: { tags: ['admin', 'events'] } },
     async (request, reply) => {
       const { eventId } = request.params as { eventId: string };
-      const [event] = await app.db
-        .update(events)
-        .set({
-          status: 'archived',
-          deletedAt: new Date(),
-          updatedBy: request.currentUser!.id,
-        })
-        .where(and(eq(events.id, eventId), isNull(events.deletedAt)))
-        .returning();
+      const [event] = await app.db.select().from(events).where(eq(events.id, eventId)).limit(1);
       if (!event) throw new AppError('EVENT_NOT_FOUND', 'Мероприятие не найдено', 404);
+      const deletedAt = event.deletedAt ?? new Date();
+
+      await app.db.transaction(async (transaction) => {
+        await transaction
+          .update(events)
+          .set({
+            status: 'archived',
+            directAccessEnabled: false,
+            updatedBy: request.currentUser!.id,
+          })
+          .where(eq(events.id, eventId));
+        await transaction
+          .update(submissions)
+          .set({ status: 'deleted', deletedAt })
+          .where(eq(submissions.eventId, eventId));
+        await transaction
+          .update(artifacts)
+          .set({
+            status: 'deleted',
+            statusReason: 'Удалено вместе с мероприятием',
+            deletedAt,
+          })
+          .where(eq(artifacts.eventId, eventId));
+        await transaction
+          .update(exportJobs)
+          .set({
+            status: 'expired',
+            expiresAt: deletedAt,
+            errorMessage: 'Удалено вместе с мероприятием',
+          })
+          .where(eq(exportJobs.eventId, eventId));
+      });
+
+      let purgeResult;
+      try {
+        purgeResult = await purgeEventStorage(
+          app.s3Internal,
+          [
+            app.config.S3_QUARANTINE_BUCKET,
+            app.config.S3_PRIVATE_BUCKET,
+            app.config.S3_EXPORT_BUCKET,
+          ],
+          eventId,
+        );
+      } catch (error) {
+        app.log.error({ error, eventId }, 'Event storage purge failed');
+        throw new AppError(
+          'EVENT_STORAGE_DELETE_FAILED',
+          'Не удалось полностью очистить файлы мероприятия. Повторите удаление.',
+          502,
+        );
+      }
+
+      await app.db.transaction(async (transaction) => {
+        await transaction
+          .update(artifacts)
+          .set({ uploadId: null })
+          .where(eq(artifacts.eventId, eventId));
+        await transaction
+          .update(exportJobs)
+          .set({ bucket: null, objectKey: null, sizeBytes: null })
+          .where(eq(exportJobs.eventId, eventId));
+        await transaction
+          .update(events)
+          .set({ deletedAt, updatedAt: new Date() })
+          .where(eq(events.id, eventId));
+      });
+
       await writeAudit(request, {
-        action: 'event.archive',
+        action: 'event.delete',
         entityType: 'event',
         entityId: event.id,
         eventId: event.id,
+        metadata: { ...purgeResult },
       });
       return reply.code(204).send();
     },
