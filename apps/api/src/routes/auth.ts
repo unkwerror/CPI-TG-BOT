@@ -3,10 +3,11 @@ import { telegramAuthSchema, type AuthResponse } from '@cpi/shared';
 import { users } from '@cpi/db';
 import { createSession, destroySession, ensureUserRole, loadAuthenticatedUser } from '../auth';
 import { verifyTelegramInitData } from '../telegram-auth';
+import type { SessionData } from '../types';
 
 function authPayload(
   user: NonNullable<Awaited<ReturnType<typeof loadAuthenticatedUser>>>,
-  csrfToken: string,
+  session: SessionData,
 ): AuthResponse {
   return {
     user: {
@@ -16,7 +17,8 @@ function authPayload(
       roles: user.roles,
       profileComplete: Boolean(user.fullName && user.consentAt),
     },
-    csrfToken,
+    csrfToken: session.csrfToken,
+    sessionToken: session.id,
   };
 }
 
@@ -72,7 +74,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       const session = await createSession(app, reply, databaseUser.id);
       const authenticated = await loadAuthenticatedUser(app.db, databaseUser.id);
       if (!authenticated) throw new Error('Authenticated user disappeared');
-      return authPayload(authenticated, session.csrfToken);
+      return authPayload(authenticated, session);
     },
   );
 
@@ -118,7 +120,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       const session = await createSession(app, reply, databaseUser.id);
       const authenticated = await loadAuthenticatedUser(app.db, databaseUser.id);
       if (!authenticated) throw new Error('Dev user disappeared');
-      return authPayload(authenticated, session.csrfToken);
+      return authPayload(authenticated, session);
     },
   );
 
@@ -134,6 +136,6 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
   app.get(
     '/auth/session',
     { preHandler: app.requireAuth, schema: { tags: ['auth'] } },
-    async (request) => authPayload(request.currentUser!, request.session!.csrfToken),
+    async (request) => authPayload(request.currentUser!, request.session!),
   );
 };

@@ -202,6 +202,7 @@ export interface AuthResponse {
     profileComplete: boolean;
   };
   csrfToken: string;
+  sessionToken: string;
 }
 
 export interface UploadInitResponse {

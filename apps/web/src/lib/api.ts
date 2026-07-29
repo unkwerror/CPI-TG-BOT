@@ -14,15 +14,31 @@ export class ApiClientError extends Error {
 }
 
 let csrfToken: string | null = null;
+let sessionToken: string | null = null;
 
 export function setCsrfToken(value: string): void {
   csrfToken = value;
   sessionStorage.setItem('csrfToken', value);
 }
 
+function setSessionToken(value: string): void {
+  sessionToken = value;
+  sessionStorage.setItem('sessionToken', value);
+}
+
 function getCsrfToken(): string | null {
   csrfToken ??= sessionStorage.getItem('csrfToken');
   return csrfToken;
+}
+
+function getSessionToken(): string | null {
+  sessionToken ??= sessionStorage.getItem('sessionToken');
+  return sessionToken;
+}
+
+function saveAuthSession(session: AuthResponse): void {
+  setCsrfToken(session.csrfToken);
+  setSessionToken(session.sessionToken);
 }
 
 export async function api<T>(
@@ -34,6 +50,8 @@ export async function api<T>(
   const needsCsrf = options?.csrf ?? !['GET', 'HEAD', 'OPTIONS'].includes(method);
   const headers = new Headers(init.headers);
   if (init.body && !headers.has('content-type')) headers.set('content-type', 'application/json');
+  const bearer = getSessionToken();
+  if (bearer && !headers.has('authorization')) headers.set('authorization', `Bearer ${bearer}`);
   if (needsCsrf) {
     const token = getCsrfToken();
     if (token) headers.set('x-csrf-token', token);
@@ -61,7 +79,7 @@ export async function api<T>(
 export async function authenticate(): Promise<AuthResponse> {
   try {
     const session = await api<AuthResponse>('/auth/session');
-    setCsrfToken(session.csrfToken);
+    saveAuthSession(session);
     return session;
   } catch (error) {
     if (!(error instanceof ApiClientError) || error.status !== 401) throw error;
@@ -73,7 +91,7 @@ export async function authenticate(): Promise<AuthResponse> {
       { method: 'POST', body: JSON.stringify({ initData }) },
       { csrf: false },
     );
-    setCsrfToken(result.csrfToken);
+    saveAuthSession(result);
     return result;
   }
   if (process.env.NEXT_PUBLIC_DEV_AUTH_ENABLED === 'true') {
@@ -82,7 +100,7 @@ export async function authenticate(): Promise<AuthResponse> {
       { method: 'POST', body: JSON.stringify({}) },
       { csrf: false },
     );
-    setCsrfToken(result.csrfToken);
+    saveAuthSession(result);
     return result;
   }
   throw new ApiClientError(
