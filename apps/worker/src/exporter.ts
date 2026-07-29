@@ -21,6 +21,27 @@ const { ZipArchive } = archiverModule as unknown as {
   ZipArchive: new (options?: archiver.ArchiverOptions) => archiver.Archiver;
 };
 
+export function formatSubmissionArtifactText(submission: SubmissionRow): string {
+  return [
+    'АРТЕФАКТ МЕРОПРИЯТИЯ',
+    '',
+    `ID отправки: ${submission.id}`,
+    `ID пользователя: ${submission.userId}`,
+    `Автор: ${submission.fullName ?? '—'}`,
+    `Telegram ID: ${submission.telegramUserId}`,
+    `Название: ${submission.title ?? '—'}`,
+    `Статус: ${submission.status}`,
+    `Дата создания: ${submission.createdAt.toISOString()}`,
+    '',
+    'ССЫЛКА',
+    submission.link ?? '—',
+    '',
+    'ТЕКСТ',
+    submission.text ?? '—',
+    '',
+  ].join('\n');
+}
+
 async function loadParticipants(context: WorkerContext, eventId: string) {
   const output: Array<{
     id: string;
@@ -421,6 +442,9 @@ export async function buildZip(
       const stamp = submission.createdAt.toISOString().replaceAll(':', '-');
       const directory = `${root}/Артефакты/${person}/submission_${stamp}_${submission.id.slice(0, 8)}`;
       submissionDirectories.set(submission.id, directory);
+      archive.append(Buffer.from(formatSubmissionArtifactText(submission), 'utf8'), {
+        name: `${directory}/Артефакт.txt`,
+      });
       if (submission.text) {
         archive.append(Buffer.from(submission.text, 'utf8'), {
           name: `${directory}/text.txt`,

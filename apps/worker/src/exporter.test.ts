@@ -24,7 +24,7 @@ vi.mock('@aws-sdk/lib-storage', () => ({
   },
 }));
 
-import { buildZip } from './exporter';
+import { buildZip, formatSubmissionArtifactText } from './exporter';
 
 const temporaryDirectories: string[] = [];
 
@@ -38,6 +38,27 @@ afterEach(async () => {
 });
 
 describe('ZIP export streaming', () => {
+  it('writes all text and link artifact fields into a readable TXT representation', () => {
+    const output = formatSubmissionArtifactText({
+      id: 'submission-id',
+      userId: 'user-id',
+      fullName: 'Иван Иванов',
+      telegramUserId: '123456789',
+      title: 'Полезный материал',
+      text: 'Первая строка\nВторая строка',
+      link: 'https://example.com/material',
+      status: 'ready',
+      createdAt: new Date('2026-07-29T12:00:00.000Z'),
+    });
+
+    expect(output).toContain('ID отправки: submission-id');
+    expect(output).toContain('Автор: Иван Иванов');
+    expect(output).toContain('Название: Полезный материал');
+    expect(output).toContain('https://example.com/material');
+    expect(output).toContain('Первая строка\nВторая строка');
+    expect(output).toContain('Дата создания: 2026-07-29T12:00:00.000Z');
+  });
+
   it('starts consuming the stream before finalizing and verifies the stored size', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'cpi-export-test-'));
     temporaryDirectories.push(directory);
