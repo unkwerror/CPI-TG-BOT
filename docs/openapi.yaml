@@ -1,0 +1,524 @@
+openapi: 3.1.0
+info:
+  title: CPI Artifacts API
+  version: 1.0.0
+  description: API Telegram Mini App для сбора материалов мероприятий.
+servers:
+  - url: https://artifacts.62-113-105-225.sslip.io
+security:
+  - sessionCookie: []
+tags:
+  - name: auth
+  - name: profile
+  - name: events
+  - name: submissions
+  - name: uploads
+  - name: artifacts
+  - name: admin
+paths:
+  /api/v1/auth/telegram:
+    post:
+      tags: [auth]
+      security: []
+      summary: Проверка подписанного Telegram initData и создание сессии
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [initData]
+              properties:
+                initData: { type: string, maxLength: 16384 }
+      responses:
+        "200":
+          description: Сессия создана
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/v1/auth/session:
+    get:
+      tags: [auth]
+      summary: Текущая сессия
+      responses:
+        "200":
+          description: Активная сессия
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthResponse" }
+  /api/v1/auth/logout:
+    post:
+      tags: [auth]
+      summary: Завершить сессию
+      parameters:
+        - { $ref: "#/components/parameters/CsrfToken" }
+      responses:
+        "204": { description: Сессия завершена }
+  /api/v1/me:
+    get:
+      tags: [profile]
+      summary: Профиль текущего пользователя
+      responses:
+        "200":
+          description: Профиль
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+    patch:
+      tags: [profile]
+      summary: Обновить профиль
+      parameters:
+        - { $ref: "#/components/parameters/CsrfToken" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fullName, consent]
+              properties:
+                fullName: { type: string, minLength: 2, maxLength: 200 }
+                organization: { type: [string, "null"], maxLength: 200 }
+                position: { type: [string, "null"], maxLength: 200 }
+                phone: { type: [string, "null"], maxLength: 100 }
+                consent: { const: true }
+      responses:
+        "200": { description: Профиль обновлён }
+  /api/v1/me/submissions:
+    get:
+      tags: [submissions]
+      summary: Все отправки текущего пользователя
+      responses:
+        "200":
+          description: Список отправок
+  /api/v1/events:
+    get:
+      tags: [events]
+      summary: Поиск и фильтрация опубликованных мероприятий
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 200 } }
+        - { name: city, in: query, schema: { type: string } }
+        - { name: format, in: query, schema: { $ref: "#/components/schemas/EventFormat" } }
+        - { name: status, in: query, schema: { $ref: "#/components/schemas/EventStatus" } }
+        - { name: cursor, in: query, schema: { type: string, format: uuid } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        "200":
+          description: Страница мероприятий
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Event" }
+                  nextCursor: { type: [string, "null"], format: uuid }
+  /api/v1/events/{eventKey}:
+    get:
+      tags: [events]
+      summary: Мероприятие по UUID, slug или короткому коду
+      parameters:
+        - { name: eventKey, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Мероприятие
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Event" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/events/{eventId}/submissions:
+    get:
+      tags: [submissions]
+      summary: Свои отправки в мероприятие
+      parameters:
+        - { $ref: "#/components/parameters/EventId" }
+      responses:
+        "200": { description: Список отправок }
+    post:
+      tags: [submissions]
+      summary: Идемпотентно создать отправку
+      parameters:
+        - { $ref: "#/components/parameters/EventId" }
+        - { $ref: "#/components/parameters/CsrfToken" }
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SubmissionInput" }
+      responses:
+        "201":
+          description: Отправка создана
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Submission" }
+        "409": { description: Приём закрыт или профиль не заполнен }
+  /api/v1/uploads/init:
+    post:
+      tags: [uploads]
+      summary: Создать simple или multipart S3-загрузку
+      parameters:
+        - { $ref: "#/components/parameters/CsrfToken" }
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [submissionId, fileName, mimeType, sizeBytes]
+              properties:
+                submissionId: { type: string, format: uuid }
+                fileName: { type: string, maxLength: 500 }
+                mimeType: { type: string, maxLength: 200 }
+                sizeBytes: { type: integer, minimum: 1 }
+                lastModified: { type: integer, minimum: 0 }
+      responses:
+        "201":
+          description: Параметры прямой загрузки
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UploadInit" }
+        "413": { description: Файл превышает лимит или запрещён политикой }
+  /api/v1/uploads/{artifactId}/part-url:
+    get:
+      tags: [uploads]
+      summary: Короткоживущий URL отдельной multipart-части
+      parameters:
+        - { $ref: "#/components/parameters/ArtifactId" }
+        - { name: partNumber, in: query, required: true, schema: { type: integer, minimum: 1, maximum: 10000 } }
+      responses:
+        "200":
+          description: Presigned URL части
+  /api/v1/uploads/{artifactId}/complete:
+    post:
+      tags: [uploads]
+      summary: Идемпотентно завершить загрузку и поставить проверку в очередь
+      parameters:
+        - { $ref: "#/components/parameters/ArtifactId" }
+        - { $ref: "#/components/parameters/CsrfToken" }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                parts:
+                  type: array
+                  maxItems: 10000
+                  items:
+                    type: object
+                    required: [partNumber, etag]
+                    properties:
+                      partNumber: { type: integer }
+                      etag: { type: string }
+      responses:
+        "200":
+          description: Метаданные артефакта
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Artifact" }
+  /api/v1/uploads/{artifactId}/abort:
+    post:
+      tags: [uploads]
+      summary: Отменить незавершённую загрузку
+      parameters:
+        - { $ref: "#/components/parameters/ArtifactId" }
+        - { $ref: "#/components/parameters/CsrfToken" }
+      responses:
+        "204": { description: Загрузка отменена }
+  /api/v1/artifacts/{artifactId}/download:
+    get:
+      tags: [artifacts]
+      summary: Защищённый временный URL готового файла
+      parameters:
+        - { $ref: "#/components/parameters/ArtifactId" }
+      responses:
+        "200":
+          description: Presigned download URL
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/admin/dashboard:
+    get:
+      tags: [admin]
+      summary: Сводные показатели
+      responses:
+        "200": { description: Дашборд }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v1/admin/events:
+    get:
+      tags: [admin]
+      summary: Все мероприятия
+      responses:
+        "200": { description: Список }
+    post:
+      tags: [admin]
+      summary: Создать мероприятие
+      parameters:
+        - { $ref: "#/components/parameters/CsrfToken" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EventInput" }
+      responses:
+        "201": { description: Мероприятие создано }
+  /api/v1/admin/events/{eventId}:
+    get:
+      tags: [admin]
+      parameters:
+        - { $ref: "#/components/parameters/EventId" }
+      responses:
+        "200": { description: Мероприятие }
+    patch:
+      tags: [admin]
+      parameters:
+        - { $ref: "#/components/parameters/EventId" }
+        - { $ref: "#/components/parameters/CsrfToken" }
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EventInput" }
+      responses:
+        "200": { description: Мероприятие обновлено }
+    delete:
+      tags: [admin]
+      parameters:
+        - { $ref: "#/components/parameters/EventId" }
+        - { $ref: "#/components/parameters/CsrfToken" }
+      responses:
+        "204": { description: Мероприятие архивировано }
+  /api/v1/admin/users:
+    get:
+      tags: [admin]
+      summary: Участники с агрегатами
+      parameters:
+        - { name: eventId, in: query, schema: { type: string, format: uuid } }
+        - { name: q, in: query, schema: { type: string } }
+      responses:
+        "200": { description: Страница участников }
+  /api/v1/admin/submissions:
+    get:
+      tags: [admin]
+      summary: Отправки участников
+      responses:
+        "200": { description: Страница отправок }
+  /api/v1/admin/artifacts:
+    get:
+      tags: [admin]
+      summary: Файлы с фильтрами
+      responses:
+        "200": { description: Страница файлов }
+  /api/v1/admin/artifacts/{artifactId}:
+    patch:
+      tags: [admin]
+      summary: Изменить статус файла
+      parameters:
+        - { $ref: "#/components/parameters/ArtifactId" }
+        - { $ref: "#/components/parameters/CsrfToken" }
+      responses:
+        "200": { description: Файл обновлён }
+  /api/v1/admin/exports:
+    get:
+      tags: [admin]
+      summary: Задания экспорта
+      responses:
+        "200": { description: Список заданий }
+    post:
+      tags: [admin]
+      summary: Запустить CSV, XLSX или ZIP в фоне
+      parameters:
+        - { $ref: "#/components/parameters/CsrfToken" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [eventId, kind]
+              properties:
+                eventId: { type: string, format: uuid }
+                kind: { enum: [csv, xlsx, zip] }
+      responses:
+        "202": { description: Задание принято }
+  /api/v1/admin/exports/{exportId}/download:
+    get:
+      tags: [admin]
+      summary: Временный URL готовой выгрузки
+      parameters:
+        - { name: exportId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: URL выгрузки }
+        "409": { description: Выгрузка не готова }
+  /api/v1/admin/audit:
+    get:
+      tags: [admin]
+      summary: Журнал действий
+      responses:
+        "200": { description: Журнал }
+  /api/v1/admin/admins:
+    get:
+      tags: [admin]
+      summary: Администраторы (только superadmin)
+      responses:
+        "200": { description: Список администраторов }
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: cpi_artifacts_session
+  parameters:
+    CsrfToken:
+      name: x-csrf-token
+      in: header
+      required: true
+      schema: { type: string }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 8, maxLength: 128 }
+    EventId:
+      name: eventId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ArtifactId:
+      name: artifactId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  schemas:
+    EventFormat:
+      enum: [offline, online, hybrid]
+    EventStatus:
+      enum: [draft, published, running, finished, archived]
+    User:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        telegramUserId: { type: string, pattern: '^\d+$' }
+        fullName: { type: [string, "null"] }
+        organization: { type: [string, "null"] }
+        position: { type: [string, "null"] }
+        phone: { type: [string, "null"] }
+        roles:
+          type: array
+          items: { enum: [participant, admin, superadmin] }
+        profileComplete: { type: boolean }
+    AuthResponse:
+      type: object
+      required: [user, csrfToken]
+      properties:
+        user: { $ref: "#/components/schemas/User" }
+        csrfToken: { type: string }
+    Event:
+      allOf:
+        - { $ref: "#/components/schemas/EventInput" }
+        - type: object
+          properties:
+            id: { type: string, format: uuid }
+            acceptsUploads: { type: boolean }
+    EventInput:
+      type: object
+      required:
+        - title
+        - slug
+        - shortCode
+        - organizer
+        - startsAt
+        - endsAt
+        - timezone
+        - format
+        - status
+        - acceptUploadsFrom
+        - acceptUploadsUntil
+      properties:
+        title: { type: string, maxLength: 300 }
+        slug: { type: string, pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$' }
+        shortCode: { type: string, maxLength: 24 }
+        description: { type: [string, "null"] }
+        organizer: { type: string }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        timezone: { type: string }
+        venue: { type: [string, "null"] }
+        city: { type: [string, "null"] }
+        format: { $ref: "#/components/schemas/EventFormat" }
+        status: { $ref: "#/components/schemas/EventStatus" }
+        tags: { type: array, items: { type: string } }
+        acceptUploadsFrom: { type: string, format: date-time }
+        acceptUploadsUntil: { type: string, format: date-time }
+        maxFileSizeBytes: { type: integer, minimum: 1 }
+        allowedMimeTypes: { type: array, items: { type: string } }
+        blockedExtensions: { type: array, items: { type: string } }
+        directAccessEnabled: { type: boolean }
+    SubmissionInput:
+      type: object
+      properties:
+        title: { type: [string, "null"], maxLength: 300 }
+        text: { type: [string, "null"], maxLength: 50000 }
+        link: { type: [string, "null"], format: uri }
+        hasFiles: { type: boolean }
+    Submission:
+      allOf:
+        - { $ref: "#/components/schemas/SubmissionInput" }
+        - type: object
+          properties:
+            id: { type: string, format: uuid }
+            eventId: { type: string, format: uuid }
+            userId: { type: string, format: uuid }
+            status: { enum: [draft, processing, ready, failed, deleted] }
+    UploadInit:
+      type: object
+      required: [artifactId, uploadType, expiresInSeconds]
+      properties:
+        artifactId: { type: string, format: uuid }
+        uploadType: { enum: [simple, multipart] }
+        uploadUrl: { type: string, format: uri }
+        partSize: { type: integer }
+        expiresInSeconds: { type: integer }
+        alreadyCompleted: { type: boolean }
+    Artifact:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        submissionId: { type: string, format: uuid }
+        eventId: { type: string, format: uuid }
+        userId: { type: string, format: uuid }
+        originalName: { type: string }
+        displayName: { type: string }
+        mimeType: { type: string }
+        sizeBytes: { type: integer }
+        checksumSha256: { type: [string, "null"] }
+        status:
+          enum: [created, uploading, uploaded, verifying, ready, failed, quarantined, deleted]
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            requestId: { type: string }
+            details: {}
+  responses:
+    Unauthorized:
+      description: Необходима действительная Telegram-сессия
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: Недостаточно прав
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Объект не найден или недоступен пользователю
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
