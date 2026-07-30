@@ -42,10 +42,15 @@ import {
   serializeSubmission,
   serializeUser,
 } from '../serializers';
-import { purgeEventStorage } from '../event-storage';
+import { purgeEventStorage, purgeStoredObjects, type StoredObjectTarget } from '../event-storage';
 
 const participantQuerySchema = paginationQuerySchema.extend({
   eventId: z.uuid().optional(),
+});
+
+const eventParticipantParamsSchema = z.object({
+  eventId: z.uuid(),
+  userId: z.uuid(),
 });
 
 const artifactQuerySchema = paginationQuerySchema.extend({
@@ -514,6 +519,184 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         query.limit,
       );
       return page;
+    },
+  );
+
+  app.delete(
+    '/admin/events/:eventId/participants/:userId',
+    { preHandler: writeGuards, schema: { tags: ['admin', 'users', 'events'] } },
+    async (request) => {
+      const { eventId, userId } = eventParticipantParamsSchema.parse(request.params);
+      const [event] = await app.db
+        .select({ id: events.id })
+        .from(events)
+        .where(and(eq(events.id, eventId), isNull(events.deletedAt)))
+        .limit(1);
+      if (!event) throw new AppError('EVENT_NOT_FOUND', 'Мероприятие не найдено', 404);
+
+      const removedAt = new Date();
+      const removal = await app.db.transaction(async (transaction) => {
+        const [participant] = await transaction
+          .select({ userId: eventParticipants.userId })
+          .from(eventParticipants)
+          .where(and(eq(eventParticipants.eventId, eventId), eq(eventParticipants.userId, userId)))
+          .limit(1);
+        if (!participant) {
+          throw new AppError(
+            'EVENT_PARTICIPANT_NOT_FOUND',
+            'Участник не найден в мероприятии',
+            404,
+          );
+        }
+        const deletedSubmissions = await transaction
+          .update(submissions)
+          .set({ status: 'deleted', deletedAt: removedAt, updatedAt: removedAt })
+          .where(
+            and(
+              eq(submissions.eventId, eventId),
+              eq(submissions.userId, userId),
+              isNull(submissions.deletedAt),
+            ),
+          )
+          .returning({ id: submissions.id });
+        const deletedArtifacts = await transaction
+          .update(artifacts)
+          .set({
+            status: 'deleted',
+            statusReason: 'Удалено администратором вместе с участником',
+            deletedAt: removedAt,
+            updatedAt: removedAt,
+          })
+          .where(
+            and(
+              eq(artifacts.eventId, eventId),
+              eq(artifacts.userId, userId),
+              isNull(artifacts.deletedAt),
+            ),
+          )
+          .returning({ id: artifacts.id });
+        const storedArtifacts = await transaction
+          .select({
+            id: artifacts.id,
+            bucket: artifacts.bucket,
+            objectKey: artifacts.objectKey,
+            uploadId: artifacts.uploadId,
+          })
+          .from(artifacts)
+          .where(and(eq(artifacts.eventId, eventId), eq(artifacts.userId, userId)));
+        const invalidatedExports = await transaction
+          .update(exportJobs)
+          .set({
+            status: 'expired',
+            expiresAt: removedAt,
+            errorMessage: 'Недействительна после удаления участника',
+          })
+          .where(
+            and(
+              eq(exportJobs.eventId, eventId),
+              inArray(exportJobs.status, ['queued', 'processing', 'ready', 'failed']),
+            ),
+          )
+          .returning({ id: exportJobs.id });
+        const storedExports = await transaction
+          .select({
+            id: exportJobs.id,
+            kind: exportJobs.kind,
+            bucket: exportJobs.bucket,
+            objectKey: exportJobs.objectKey,
+          })
+          .from(exportJobs)
+          .where(eq(exportJobs.eventId, eventId));
+
+        return {
+          deletedSubmissions,
+          deletedArtifacts,
+          storedArtifacts,
+          invalidatedExports,
+          storedExports,
+        };
+      });
+
+      const storageTargets: StoredObjectTarget[] = [];
+      for (const artifact of removal.storedArtifacts) {
+        for (const bucket of new Set([
+          artifact.bucket,
+          app.config.S3_QUARANTINE_BUCKET,
+          app.config.S3_PRIVATE_BUCKET,
+        ])) {
+          storageTargets.push({
+            bucket,
+            key: artifact.objectKey,
+            uploadId: bucket === artifact.bucket ? artifact.uploadId : null,
+          });
+        }
+      }
+      for (const job of removal.storedExports) {
+        const generatedKey = `${eventId}/${job.id}.${job.kind}`;
+        storageTargets.push({
+          bucket: app.config.S3_EXPORT_BUCKET,
+          key: generatedKey,
+        });
+        if (job.bucket && job.objectKey) {
+          storageTargets.push({ bucket: job.bucket, key: job.objectKey });
+        }
+      }
+
+      let purgeResult;
+      try {
+        purgeResult = await purgeStoredObjects(app.s3Internal, storageTargets);
+      } catch (error) {
+        app.log.error({ error, eventId, userId }, 'Participant storage purge failed');
+        throw new AppError(
+          'PARTICIPANT_STORAGE_DELETE_FAILED',
+          'Не удалось полностью удалить файлы участника. Повторите удаление.',
+          502,
+        );
+      }
+
+      await app.db.transaction(async (transaction) => {
+        if (removal.storedArtifacts.length > 0) {
+          await transaction
+            .update(artifacts)
+            .set({ uploadId: null })
+            .where(
+              inArray(
+                artifacts.id,
+                removal.storedArtifacts.map((artifact) => artifact.id),
+              ),
+            );
+        }
+        if (removal.storedExports.length > 0) {
+          await transaction
+            .update(exportJobs)
+            .set({ bucket: null, objectKey: null, sizeBytes: null })
+            .where(
+              inArray(
+                exportJobs.id,
+                removal.storedExports.map((job) => job.id),
+              ),
+            );
+        }
+        await transaction
+          .delete(eventParticipants)
+          .where(and(eq(eventParticipants.eventId, eventId), eq(eventParticipants.userId, userId)));
+      });
+
+      const result = {
+        participantRemoved: true,
+        submissionsDeleted: removal.deletedSubmissions.length,
+        artifactsDeleted: removal.deletedArtifacts.length,
+        exportsInvalidated: removal.invalidatedExports.length,
+        ...purgeResult,
+      };
+      await writeAudit(request, {
+        action: 'event.participant.delete',
+        entityType: 'event_participant',
+        entityId: userId,
+        eventId,
+        metadata: result,
+      });
+      return result;
     },
   );
 

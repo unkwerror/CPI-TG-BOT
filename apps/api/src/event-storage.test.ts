@@ -6,7 +6,7 @@ import {
   type S3Client,
 } from '@aws-sdk/client-s3';
 import { describe, expect, it, vi } from 'vitest';
-import { purgeEventStorage } from './event-storage';
+import { purgeEventStorage, purgeStoredObjects } from './event-storage';
 
 describe('event storage purge', () => {
   it('aborts multipart uploads and deletes every object under the exact event prefix', async () => {
@@ -77,5 +77,64 @@ describe('event storage purge', () => {
     await expect(
       purgeEventStorage({ send } as unknown as S3Client, ['private'], 'event-id'),
     ).rejects.toThrow('AccessDenied');
+  });
+
+  it('aborts known uploads and deletes exact objects without duplicating requests', async () => {
+    const aborted: string[] = [];
+    const deleted: string[] = [];
+    const send = vi.fn(async (command: unknown) => {
+      if (command instanceof AbortMultipartUploadCommand) {
+        aborted.push(`${command.input.Bucket}:${command.input.Key}:${command.input.UploadId}`);
+        return {};
+      }
+      if (command instanceof DeleteObjectsCommand) {
+        deleted.push(
+          ...(command.input.Delete?.Objects ?? []).map(
+            (object) => `${command.input.Bucket}:${object.Key}`,
+          ),
+        );
+        return {};
+      }
+      throw new Error('Unexpected S3 command');
+    });
+
+    const result = await purgeStoredObjects({ send } as unknown as S3Client, [
+      { bucket: 'private', key: 'event/submission/artifact' },
+      {
+        bucket: 'quarantine',
+        key: 'event/submission/artifact',
+        uploadId: 'multipart-id',
+      },
+      {
+        bucket: 'quarantine',
+        key: 'event/submission/artifact',
+        uploadId: 'multipart-id',
+      },
+      { bucket: 'exports', key: 'event/export.zip' },
+    ]);
+
+    expect(result).toEqual({ deletedObjects: 3, abortedMultipartUploads: 1 });
+    expect(aborted).toEqual(['quarantine:event/submission/artifact:multipart-id']);
+    expect(deleted).toEqual([
+      'private:event/submission/artifact',
+      'quarantine:event/submission/artifact',
+      'exports:event/export.zip',
+    ]);
+  });
+
+  it('treats an already absent multipart upload as successfully cleaned up', async () => {
+    const send = vi.fn(async (command: unknown) => {
+      if (command instanceof AbortMultipartUploadCommand) {
+        throw Object.assign(new Error('missing'), { name: 'NoSuchUpload' });
+      }
+      if (command instanceof DeleteObjectsCommand) return {};
+      throw new Error('Unexpected S3 command');
+    });
+
+    await expect(
+      purgeStoredObjects({ send } as unknown as S3Client, [
+        { bucket: 'quarantine', key: 'event/file', uploadId: 'already-gone' },
+      ]),
+    ).resolves.toEqual({ deletedObjects: 1, abortedMultipartUploads: 0 });
   });
 });

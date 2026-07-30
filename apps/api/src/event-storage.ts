@@ -11,6 +11,96 @@ export interface EventStoragePurgeResult {
   abortedMultipartUploads: number;
 }
 
+export interface StoredObjectTarget {
+  bucket: string;
+  key: string;
+  uploadId?: string | null;
+}
+
+function isMissingMultipartUpload(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const candidate = error as {
+    name?: string;
+    Code?: string;
+    code?: string;
+    $metadata?: { httpStatusCode?: number };
+  };
+  return (
+    candidate.name === 'NoSuchUpload' ||
+    candidate.Code === 'NoSuchUpload' ||
+    candidate.code === 'NoSuchUpload' ||
+    candidate.$metadata?.httpStatusCode === 404
+  );
+}
+
+export async function purgeStoredObjects(
+  s3: S3Client,
+  targets: Iterable<StoredObjectTarget>,
+): Promise<EventStoragePurgeResult> {
+  const objectsByBucket = new Map<string, Set<string>>();
+  const multipartUploads = new Map<string, { bucket: string; key: string; uploadId: string }>();
+
+  for (const target of targets) {
+    const keys = objectsByBucket.get(target.bucket) ?? new Set<string>();
+    keys.add(target.key);
+    objectsByBucket.set(target.bucket, keys);
+    if (target.uploadId) {
+      multipartUploads.set(`${target.bucket}\0${target.key}\0${target.uploadId}`, {
+        bucket: target.bucket,
+        key: target.key,
+        uploadId: target.uploadId,
+      });
+    }
+  }
+
+  let abortedMultipartUploads = 0;
+  const uploads = [...multipartUploads.values()];
+  for (let index = 0; index < uploads.length; index += 20) {
+    await Promise.all(
+      uploads.slice(index, index + 20).map(async (target) => {
+        try {
+          await s3.send(
+            new AbortMultipartUploadCommand({
+              Bucket: target.bucket,
+              Key: target.key,
+              UploadId: target.uploadId,
+            }),
+          );
+          abortedMultipartUploads += 1;
+        } catch (error) {
+          if (!isMissingMultipartUpload(error)) throw error;
+        }
+      }),
+    );
+  }
+
+  let deletedObjects = 0;
+  for (const [bucket, keys] of objectsByBucket) {
+    const objects = [...keys];
+    for (let index = 0; index < objects.length; index += 1_000) {
+      const batch = objects.slice(index, index + 1_000);
+      const result = await s3.send(
+        new DeleteObjectsCommand({
+          Bucket: bucket,
+          Delete: {
+            Objects: batch.map((Key) => ({ Key })),
+            Quiet: true,
+          },
+        }),
+      );
+      if (result.Errors?.length) {
+        const first = result.Errors[0];
+        throw new Error(
+          `S3 failed to delete ${result.Errors.length} stored objects; first error: ${first?.Code ?? 'unknown'}`,
+        );
+      }
+      deletedObjects += batch.length;
+    }
+  }
+
+  return { deletedObjects, abortedMultipartUploads };
+}
+
 async function abortMultipartUploads(
   s3: S3Client,
   bucket: string,

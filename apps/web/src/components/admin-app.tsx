@@ -769,6 +769,15 @@ interface AdminParticipant extends CurrentUser {
   totalBytes: number;
 }
 
+interface ParticipantRemovalResult {
+  participantRemoved: boolean;
+  submissionsDeleted: number;
+  artifactsDeleted: number;
+  exportsInvalidated: number;
+  deletedObjects: number;
+  abortedMultipartUploads: number;
+}
+
 function Participants({
   eventId,
   onEventChange,
@@ -778,52 +787,173 @@ function Participants({
 }) {
   const [items, setItems] = useState<AdminParticipant[]>([]);
   const [query, setQuery] = useState('');
-  useEffect(() => {
+  const [deleteCandidate, setDeleteCandidate] = useState<AdminParticipant | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [notice, setNotice] = useState<{
+    kind: 'success' | 'error';
+    text: string;
+  } | null>(null);
+
+  const load = useCallback(async () => {
     const parameters = new URLSearchParams({ limit: '100' });
     if (eventId) parameters.set('eventId', eventId);
     if (query) parameters.set('q', query);
-    const timer = setTimeout(
-      () =>
-        void api<{ items: AdminParticipant[] }>(`/admin/users?${parameters}`).then((result) =>
-          setItems(result.items),
-        ),
-      250,
-    );
-    return () => clearTimeout(timer);
+    const result = await api<{ items: AdminParticipant[] }>(`/admin/users?${parameters}`);
+    setItems(result.items);
   }, [eventId, query]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void load().catch((caught) => {
+        setNotice({
+          kind: 'error',
+          text: caught instanceof Error ? caught.message : 'Не удалось загрузить участников',
+        });
+      });
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [load]);
+
+  const changeEvent = useCallback(
+    (nextEventId: string) => {
+      setDeleteCandidate(null);
+      setNotice(null);
+      onEventChange(nextEventId);
+    },
+    [onEventChange],
+  );
+
+  const remove = async () => {
+    if (!eventId || !deleteCandidate || deleting) return;
+    setDeleting(true);
+    setNotice(null);
+    try {
+      const result = await api<ParticipantRemovalResult>(
+        `/admin/events/${eventId}/participants/${deleteCandidate.id}`,
+        { method: 'DELETE' },
+      );
+      setDeleteCandidate(null);
+      const successText =
+        `Участник удалён из мероприятия. Отправок удалено: ${result.submissionsDeleted}, ` +
+        `файлов: ${result.artifactsDeleted}, прежних выгрузок аннулировано: ` +
+        `${result.exportsInvalidated}.`;
+      try {
+        await load();
+        setNotice({ kind: 'success', text: successText });
+      } catch {
+        setNotice({
+          kind: 'success',
+          text: `${successText} Обновите страницу, чтобы перечитать список.`,
+        });
+      }
+    } catch (caught) {
+      setNotice({
+        kind: 'error',
+        text: caught instanceof Error ? caught.message : 'Не удалось удалить участника',
+      });
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
-    <Card className="admin-table-card">
-      <div className="admin-toolbar">
-        <EventSelect value={eventId} onChange={onEventChange} />
-        <input
-          className="admin-search"
-          placeholder="Поиск участника"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-      </div>
-      <Table
-        headings={['ФИО', 'Telegram', 'Организация', 'Отправок', 'Файлов', 'Объём', 'Активность']}
-      >
-        {items.map((item) => (
-          <tr key={item.id}>
-            <td>{item.fullName}</td>
-            <td>
-              @{item.telegramUsername || '—'}
-              <small>{item.telegramUserId}</small>
-            </td>
-            <td>
-              {item.organization || '—'}
-              <small>{item.position}</small>
-            </td>
-            <td>{item.submissionCount}</td>
-            <td>{item.artifactCount}</td>
-            <td>{formatBytes(item.totalBytes)}</td>
-            <td>{item.lastSubmissionAt ? formatNovosibirskDate(item.lastSubmissionAt) : '—'}</td>
-          </tr>
-        ))}
-      </Table>
-    </Card>
+    <>
+      {notice ? (
+        <div className={`notice ${notice.kind}`} aria-live="polite">
+          {notice.text}
+        </div>
+      ) : null}
+      {deleteCandidate && eventId ? (
+        <Card className="event-delete-confirm">
+          <div>
+            <h2>Удалить участника «{deleteCandidate.fullName}»?</h2>
+            <p>
+              Участник исчезнет только из выбранного мероприятия. Его отправки и файлы будут
+              безвозвратно удалены, а прежние выгрузки мероприятия станут недействительными. Профиль
+              и участие в других мероприятиях сохранятся.
+            </p>
+          </div>
+          <div className="row-actions">
+            <Button type="button" disabled={deleting} onClick={() => setDeleteCandidate(null)}>
+              Отмена
+            </Button>
+            <Button
+              className="danger-button"
+              type="button"
+              disabled={deleting}
+              onClick={() => void remove()}
+            >
+              {deleting ? 'Удаляем материалы…' : 'Удалить участника и материалы'}
+            </Button>
+          </div>
+        </Card>
+      ) : null}
+      <Card className="admin-table-card">
+        <div className="admin-toolbar">
+          <EventSelect value={eventId} onChange={changeEvent} />
+          <input
+            className="admin-search"
+            placeholder="Поиск участника"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </div>
+        {!eventId ? (
+          <div className="notice info">
+            Для удаления участника сначала выберите конкретное мероприятие.
+          </div>
+        ) : null}
+        <Table
+          headings={[
+            'ФИО',
+            'Telegram',
+            'Организация',
+            'Отправок',
+            'Файлов',
+            'Объём',
+            'Активность',
+            'Действие',
+          ]}
+        >
+          {items.map((item) => (
+            <tr key={item.id}>
+              <td>{item.fullName}</td>
+              <td>
+                @{item.telegramUsername || '—'}
+                <small>{item.telegramUserId}</small>
+              </td>
+              <td>
+                {item.organization || '—'}
+                <small>{item.position}</small>
+              </td>
+              <td>{item.submissionCount}</td>
+              <td>{item.artifactCount}</td>
+              <td>{formatBytes(item.totalBytes)}</td>
+              <td>{item.lastSubmissionAt ? formatNovosibirskDate(item.lastSubmissionAt) : '—'}</td>
+              <td>
+                {eventId ? (
+                  <div className="row-actions">
+                    <button
+                      className="danger-text-button"
+                      type="button"
+                      disabled={deleting}
+                      onClick={() => {
+                        setNotice(null);
+                        setDeleteCandidate(item);
+                      }}
+                    >
+                      Удалить
+                    </button>
+                  </div>
+                ) : (
+                  '—'
+                )}
+              </td>
+            </tr>
+          ))}
+        </Table>
+      </Card>
+    </>
   );
 }
 
