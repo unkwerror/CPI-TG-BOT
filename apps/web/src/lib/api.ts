@@ -1,6 +1,7 @@
 'use client';
 
 import type { AuthResponse } from '@cpi/shared';
+import { waitForTelegramInitData } from './telegram-context';
 
 export class ApiClientError extends Error {
   constructor(
@@ -84,7 +85,7 @@ export async function authenticate(): Promise<AuthResponse> {
   } catch (error) {
     if (!(error instanceof ApiClientError) || error.status !== 401) throw error;
   }
-  const initData = window.Telegram?.WebApp.initData;
+  const initData = await waitForTelegramInitData();
   if (initData) {
     const result = await api<AuthResponse>(
       '/auth/telegram',
@@ -104,7 +105,7 @@ export async function authenticate(): Promise<AuthResponse> {
     return result;
   }
   throw new ApiClientError(
-    'Откройте приложение кнопкой из Telegram-бота',
+    'Telegram не передал данные входа. Закройте это окно и снова откройте приложение в Telegram',
     'TELEGRAM_CONTEXT_REQUIRED',
     401,
   );
