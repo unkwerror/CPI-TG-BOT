@@ -1,9 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
-  AbortMultipartUploadCommand,
   CompleteMultipartUploadCommand,
   CreateMultipartUploadCommand,
-  DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
@@ -27,6 +25,8 @@ import {
   type ArtifactKind,
   type UploadInitResponse,
 } from '@cpi/shared';
+import { deleteArtifactObjects } from '../artifact-storage';
+import { invalidateEventExports } from '../export-storage';
 import { serializeArtifact } from '../serializers';
 
 const partUrlSchema = z.object({
@@ -243,6 +243,18 @@ export const uploadRoutes: FastifyPluginAsync = async (app) => {
         .update(submissions)
         .set({ status: 'processing' })
         .where(eq(submissions.id, context.submission.id));
+      try {
+        await invalidateEventExports(
+          app,
+          context.event.id,
+          'Недействительна после добавления файла',
+        );
+      } catch (error) {
+        app.log.warn(
+          { error, eventId: context.event.id },
+          'Export invalidation after artifact creation failed',
+        );
+      }
       return reply.code(201).send(await presignInitialUpload(created));
     },
   );
@@ -416,25 +428,17 @@ export const uploadRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError('UPLOAD_ALREADY_COMPLETED', 'Готовый файл нельзя отменить', 409);
       }
       try {
-        if (artifact.uploadId) {
-          await app.s3Internal.send(
-            new AbortMultipartUploadCommand({
-              Bucket: artifact.bucket,
-              Key: artifact.objectKey,
-              UploadId: artifact.uploadId,
-            }),
-          );
-        } else {
-          await app.s3Internal.send(
-            new DeleteObjectCommand({ Bucket: artifact.bucket, Key: artifact.objectKey }),
-          );
-        }
+        await deleteArtifactObjects(app, [artifact]);
       } catch (error) {
         app.log.warn({ error, artifactId }, 'S3 abort failed; cleanup worker will retry');
       }
       await app.db
         .update(artifacts)
-        .set({ status: 'failed', statusReason: 'Загрузка отменена пользователем' })
+        .set({
+          status: 'deleted',
+          statusReason: 'Загрузка отменена пользователем',
+          deletedAt: new Date(),
+        })
         .where(eq(artifacts.id, artifact.id));
       return reply.code(204).send();
     },
@@ -507,6 +511,23 @@ export const uploadRoutes: FastifyPluginAsync = async (app) => {
         .update(artifacts)
         .set({ status: 'deleted', deletedAt: new Date() })
         .where(eq(artifacts.id, artifactId));
+      try {
+        await deleteArtifactObjects(app, [row.artifact]);
+      } catch (error) {
+        app.log.warn({ error, artifactId }, 'Artifact storage cleanup deferred');
+      }
+      try {
+        await invalidateEventExports(
+          app,
+          row.artifact.eventId,
+          'Недействительна после удаления файла',
+        );
+      } catch (error) {
+        app.log.warn(
+          { error, eventId: row.artifact.eventId },
+          'Export invalidation after artifact deletion failed',
+        );
+      }
       return reply.code(204).send();
     },
   );

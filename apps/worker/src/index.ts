@@ -105,10 +105,10 @@ const dispatch = async () => {
 const maintain = async () => {
   if (stopping) return;
   const lock = await connection.set(
-    `${config.REDIS_PREFIX}:maintenance-lock`,
+    `${config.REDIS_PREFIX}:maintenance-lock-v2`,
     process.pid.toString(),
     'EX',
-    3_500,
+    240,
     'NX',
   );
   if (!lock) return;
@@ -121,7 +121,7 @@ const maintain = async () => {
 };
 
 const outboxTimer = setInterval(() => void dispatch(), 5_000);
-const maintenanceTimer = setInterval(() => void maintain(), 60 * 60 * 1_000);
+const maintenanceTimer = setInterval(() => void maintain(), 5 * 60 * 1_000);
 outboxTimer.unref();
 maintenanceTimer.unref();
 void dispatch();

@@ -5,6 +5,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { artifacts, events, exportJobs, outboxEvents } from '@cpi/db';
 import { AppError, exportCreateSchema } from '@cpi/shared';
 import { writeAudit } from '../audit';
+import { invalidateEventExports } from '../export-storage';
 import { serializeExportJob } from '../serializers';
 
 export const adminExportRoutes: FastifyPluginAsync = async (app) => {
@@ -23,6 +24,12 @@ export const adminExportRoutes: FastifyPluginAsync = async (app) => {
         .limit(1);
       if (!event) throw new AppError('EVENT_NOT_FOUND', 'Мероприятие не найдено', 404);
 
+      const replaced = await invalidateEventExports(
+        app,
+        body.eventId,
+        'Заменена новой выгрузкой того же формата',
+        body.kind,
+      );
       const [job] = await app.db.transaction(async (transaction) => {
         const created = await transaction
           .insert(exportJobs)
@@ -66,7 +73,11 @@ export const adminExportRoutes: FastifyPluginAsync = async (app) => {
         entityType: 'export',
         entityId: job.id,
         eventId: job.eventId,
-        metadata: { kind: job.kind },
+        metadata: {
+          kind: job.kind,
+          replacedExports: replaced.invalidatedExports,
+          cleanupPending: replaced.cleanupPending,
+        },
       });
       return reply.code(202).send(serializeExportJob(job));
     },

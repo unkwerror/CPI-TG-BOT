@@ -80,9 +80,9 @@ export const workerEnvironmentSchema = z
     CLAMAV_PORT: integer(3310, 1),
     FILE_VERIFICATION_MODE: z.enum(['clamav', 'metadata-only']).default('metadata-only'),
     EXPORT_LINK_TTL_SECONDS: integer(86_400, 300),
-    EXPORT_RETENTION_HOURS: integer(48, 1),
-    ABANDONED_UPLOAD_HOURS: integer(24, 1),
-    DELETED_OBJECT_RETENTION_DAYS: integer(30, 1),
+    EXPORT_RETENTION_HOURS: integer(1, 1),
+    ABANDONED_UPLOAD_HOURS: integer(1, 1),
+    DELETED_OBJECT_RETENTION_DAYS: integer(0),
     WORKER_CONCURRENCY: integer(2, 1),
     LOG_LEVEL: z
       .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])

@@ -416,7 +416,7 @@ export async function buildZip(
     queueSize: 2,
     partSize: 10 * 1024 ** 2,
   });
-  const archive = new ZipArchive({ zlib: { level: 6 } });
+  const archive = new ZipArchive({ zlib: { level: 9 } });
   archive.on('warning', (error) => context.logger.warn({ error }, 'ZIP warning'));
   archive.pipe(output);
 

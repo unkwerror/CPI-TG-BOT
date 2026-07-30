@@ -34,8 +34,10 @@ export function serializeSubmission(submission: SubmissionRow) {
 }
 
 export function serializeArtifact(artifact: ArtifactRow) {
+  const { storageDeletedAt, ...publicArtifact } = artifact;
+  void storageDeletedAt;
   return {
-    ...artifact,
+    ...publicArtifact,
     sizeBytes: Number(artifact.sizeBytes),
     actualSizeBytes: artifact.actualSizeBytes === null ? null : Number(artifact.actualSizeBytes),
   };

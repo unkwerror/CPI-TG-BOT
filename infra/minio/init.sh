@@ -38,5 +38,5 @@ mc admin policy create local artifacts-app /tmp/app-policy.json 2>/dev/null || \
   mc admin policy update local artifacts-app /tmp/app-policy.json
 mc admin policy attach local artifacts-app --user "$S3_ACCESS_KEY"
 
-mc ilm rule add --expire-days 2 "local/$S3_QUARANTINE_BUCKET" 2>/dev/null || true
-mc ilm rule add --expire-days 3 "local/$S3_EXPORT_BUCKET" 2>/dev/null || true
+mc ilm rule add --expire-days 1 "local/$S3_QUARANTINE_BUCKET" 2>/dev/null || true
+mc ilm rule add --expire-days 1 "local/$S3_EXPORT_BUCKET" 2>/dev/null || true

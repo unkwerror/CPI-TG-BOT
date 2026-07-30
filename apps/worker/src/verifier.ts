@@ -5,8 +5,8 @@ import {
   GetObjectCommand,
   HeadObjectCommand,
 } from '@aws-sdk/client-s3';
-import { and, eq, isNull, ne } from 'drizzle-orm';
-import { artifacts, outboxEvents, submissions } from '@cpi/db';
+import { and, eq, inArray, isNull, ne } from 'drizzle-orm';
+import { artifacts, exportJobs, outboxEvents, submissions } from '@cpi/db';
 import { evaluateFilePolicy } from '@cpi/shared';
 import type { WorkerContext } from './context';
 import { hashAndOptionallyScan } from './clamav';
@@ -16,6 +16,22 @@ function copySource(bucket: string, key: string): string {
     .split('/')
     .map((part) => encodeURIComponent(part))
     .join('/')}`;
+}
+
+async function expireEventExports(context: WorkerContext, eventId: string): Promise<void> {
+  await context.db
+    .update(exportJobs)
+    .set({
+      status: 'expired',
+      expiresAt: new Date(),
+      errorMessage: 'Недействительна после завершения проверки файла',
+    })
+    .where(
+      and(
+        eq(exportJobs.eventId, eventId),
+        inArray(exportJobs.status, ['queued', 'processing', 'ready', 'failed']),
+      ),
+    );
 }
 
 export async function verifyArtifact(context: WorkerContext, artifactId: string): Promise<void> {
@@ -185,6 +201,15 @@ export async function verifyArtifact(context: WorkerContext, artifactId: string)
           Key: artifact.objectKey,
         }),
       );
+    } else {
+      try {
+        await expireEventExports(context, artifact.eventId);
+      } catch (error) {
+        context.logger.warn(
+          { error, eventId: artifact.eventId },
+          'Export invalidation after artifact verification failed',
+        );
+      }
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

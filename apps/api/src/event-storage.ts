@@ -17,6 +17,12 @@ export interface StoredObjectTarget {
   uploadId?: string | null;
 }
 
+export interface ArtifactStorageReference {
+  bucket: string;
+  objectKey: string;
+  uploadId?: string | null;
+}
+
 function isMissingMultipartUpload(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
   const candidate = error as {
@@ -99,6 +105,25 @@ export async function purgeStoredObjects(
   }
 
   return { deletedObjects, abortedMultipartUploads };
+}
+
+export async function purgeArtifactStorage(
+  s3: S3Client,
+  buckets: Iterable<string>,
+  artifacts: Iterable<ArtifactStorageReference>,
+): Promise<EventStoragePurgeResult> {
+  const knownBuckets = [...new Set(buckets)];
+  const targets: StoredObjectTarget[] = [];
+  for (const artifact of artifacts) {
+    for (const bucket of new Set([artifact.bucket, ...knownBuckets])) {
+      targets.push({
+        bucket,
+        key: artifact.objectKey,
+        uploadId: bucket === artifact.bucket ? (artifact.uploadId ?? null) : null,
+      });
+    }
+  }
+  return purgeStoredObjects(s3, targets);
 }
 
 async function abortMultipartUploads(

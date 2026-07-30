@@ -8,6 +8,8 @@ import {
   parseCursorPagination,
   submissionCreateSchema,
 } from '@cpi/shared';
+import { deleteArtifactObjects } from '../artifact-storage';
+import { invalidateEventExports } from '../export-storage';
 import { serializeArtifact, serializeEvent, serializeSubmission } from '../serializers';
 
 export const eventRoutes: FastifyPluginAsync = async (app) => {
@@ -72,14 +74,25 @@ export const eventRoutes: FastifyPluginAsync = async (app) => {
           .code(404)
           .send({ error: { code: 'EVENT_NOT_FOUND', message: 'Мероприятие не найдено' } });
       }
-      await app.db
+      const [joined] = await app.db
         .insert(eventParticipants)
         .values({
           eventId: event.id,
           userId: request.currentUser!.id,
           source: 'opened',
         })
-        .onConflictDoNothing();
+        .onConflictDoNothing()
+        .returning({ eventId: eventParticipants.eventId });
+      if (joined) {
+        try {
+          await invalidateEventExports(app, event.id, 'Недействительна после добавления участника');
+        } catch (error) {
+          app.log.warn(
+            { error, eventId: event.id },
+            'Export invalidation after participant join failed',
+          );
+        }
+      }
       return serializeEvent(event);
     },
   );
@@ -206,6 +219,11 @@ export const eventRoutes: FastifyPluginAsync = async (app) => {
           });
         return created;
       });
+      try {
+        await invalidateEventExports(app, eventId, 'Недействительна после добавления отправки');
+      } catch (error) {
+        app.log.warn({ error, eventId }, 'Export invalidation after submission creation failed');
+      }
       return reply.code(201).send(serializeSubmission(result));
     },
   );
@@ -225,6 +243,21 @@ export const eventRoutes: FastifyPluginAsync = async (app) => {
       if (!event || !eventAcceptsUploads(event)) {
         throw new AppError('EVENT_UPLOADS_CLOSED', 'Удаление после закрытия приёма запрещено', 409);
       }
+      const storedArtifacts = await app.db
+        .select({
+          id: artifacts.id,
+          bucket: artifacts.bucket,
+          objectKey: artifacts.objectKey,
+          uploadId: artifacts.uploadId,
+        })
+        .from(artifacts)
+        .where(
+          and(
+            eq(artifacts.submissionId, submissionId),
+            eq(artifacts.userId, request.currentUser!.id),
+            isNull(artifacts.deletedAt),
+          ),
+        );
       const [updated] = await app.db
         .update(submissions)
         .set({ status: 'deleted', deletedAt: new Date() })
@@ -248,6 +281,16 @@ export const eventRoutes: FastifyPluginAsync = async (app) => {
             isNull(artifacts.deletedAt),
           ),
         );
+      try {
+        await deleteArtifactObjects(app, storedArtifacts);
+      } catch (error) {
+        app.log.warn({ error, submissionId }, 'Submission artifact storage cleanup deferred');
+      }
+      try {
+        await invalidateEventExports(app, eventId, 'Недействительна после удаления отправки');
+      } catch (error) {
+        app.log.warn({ error, eventId }, 'Export invalidation after submission deletion failed');
+      }
       return reply.code(204).send();
     },
   );

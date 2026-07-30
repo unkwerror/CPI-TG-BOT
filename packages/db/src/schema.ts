@@ -236,12 +236,18 @@ export const artifacts = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     readyAt: timestamp('ready_at', { withTimezone: true }),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    storageDeletedAt: timestamp('storage_deleted_at', { withTimezone: true }),
   },
   (table) => [
     uniqueIndex('artifacts_user_idempotency_uq').on(table.userId, table.idempotencyKey),
     index('artifacts_submission_idx').on(table.submissionId),
     index('artifacts_event_status_idx').on(table.eventId, table.status),
     index('artifacts_user_created_idx').on(table.userId, table.createdAt),
+    index('artifacts_storage_cleanup_idx').on(
+      table.status,
+      table.deletedAt,
+      table.storageDeletedAt,
+    ),
     check('artifacts_size_positive_check', sql`${table.sizeBytes} > 0`),
   ],
 );

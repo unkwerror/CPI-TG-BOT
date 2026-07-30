@@ -6,7 +6,7 @@ import {
   type S3Client,
 } from '@aws-sdk/client-s3';
 import { describe, expect, it, vi } from 'vitest';
-import { purgeEventStorage, purgeStoredObjects } from './event-storage';
+import { purgeArtifactStorage, purgeEventStorage, purgeStoredObjects } from './event-storage';
 
 describe('event storage purge', () => {
   it('aborts multipart uploads and deletes every object under the exact event prefix', async () => {
@@ -136,5 +136,28 @@ describe('event storage purge', () => {
         { bucket: 'quarantine', key: 'event/file', uploadId: 'already-gone' },
       ]),
     ).resolves.toEqual({ deletedObjects: 1, abortedMultipartUploads: 0 });
+  });
+
+  it('cleans each artifact from both permanent and quarantine storage', async () => {
+    const deleted: string[] = [];
+    const send = vi.fn(async (command: unknown) => {
+      if (command instanceof DeleteObjectsCommand) {
+        deleted.push(
+          ...(command.input.Delete?.Objects ?? []).map(
+            (object) => `${command.input.Bucket}:${object.Key}`,
+          ),
+        );
+        return {};
+      }
+      throw new Error('Unexpected S3 command');
+    });
+
+    await purgeArtifactStorage(
+      { send } as unknown as S3Client,
+      ['private', 'quarantine'],
+      [{ bucket: 'private', objectKey: 'event/submission/file' }],
+    );
+
+    expect(deleted).toEqual(['private:event/submission/file', 'quarantine:event/submission/file']);
   });
 });

@@ -42,7 +42,9 @@ import {
   serializeSubmission,
   serializeUser,
 } from '../serializers';
+import { deleteArtifactObjects } from '../artifact-storage';
 import { purgeEventStorage, purgeStoredObjects, type StoredObjectTarget } from '../event-storage';
+import { invalidateEventExports } from '../export-storage';
 
 const participantQuerySchema = paginationQuerySchema.extend({
   eventId: z.uuid().optional(),
@@ -358,6 +360,17 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         .where(and(eq(events.id, eventId), isNull(events.deletedAt)))
         .returning();
       if (!event) throw new AppError('EVENT_NOT_FOUND', 'Мероприятие не найдено', 404);
+      let invalidatedExports = 0;
+      try {
+        const exportInvalidation = await invalidateEventExports(
+          app,
+          event.id,
+          'Недействительна после изменения мероприятия',
+        );
+        invalidatedExports = exportInvalidation.invalidatedExports;
+      } catch (error) {
+        app.log.warn({ error, eventId: event.id }, 'Export invalidation after event update failed');
+      }
       await writeAudit(request, {
         action: 'event.update',
         entityType: 'event',
@@ -367,6 +380,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
           changedFields: Object.entries(normalizedBody)
             .filter(([, value]) => value !== undefined)
             .map(([key]) => key),
+          invalidatedExports,
         },
       });
       return serializeEvent(event);
@@ -436,7 +450,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       await app.db.transaction(async (transaction) => {
         await transaction
           .update(artifacts)
-          .set({ uploadId: null })
+          .set({ uploadId: null, storageDeletedAt: new Date() })
           .where(eq(artifacts.eventId, eventId));
         await transaction
           .update(exportJobs)
@@ -658,7 +672,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         if (removal.storedArtifacts.length > 0) {
           await transaction
             .update(artifacts)
-            .set({ uploadId: null })
+            .set({ uploadId: null, storageDeletedAt: new Date() })
             .where(
               inArray(
                 artifacts.id,
@@ -792,6 +806,22 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     async (request) => {
       const { artifactId } = request.params as { artifactId: string };
       const body = statusUpdateSchema.parse(request.body);
+      const [currentArtifact] = await app.db
+        .select()
+        .from(artifacts)
+        .where(eq(artifacts.id, artifactId))
+        .limit(1);
+      if (!currentArtifact) throw new AppError('ARTIFACT_NOT_FOUND', 'Файл не найден', 404);
+      if (
+        body.status !== 'deleted' &&
+        (currentArtifact.deletedAt || currentArtifact.storageDeletedAt)
+      ) {
+        throw new AppError(
+          'ARTIFACT_STORAGE_DELETED',
+          'Файл уже удалён из хранилища и не может быть восстановлен',
+          409,
+        );
+      }
       const [artifact] = await app.db
         .update(artifacts)
         .set({
@@ -802,7 +832,26 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         })
         .where(eq(artifacts.id, artifactId))
         .returning();
-      if (!artifact) throw new AppError('ARTIFACT_NOT_FOUND', 'Файл не найден', 404);
+      if (!artifact) throw new Error('Artifact disappeared during status update');
+      if (body.status === 'deleted') {
+        try {
+          await deleteArtifactObjects(app, [artifact]);
+        } catch (error) {
+          app.log.warn({ error, artifactId }, 'Admin artifact storage cleanup deferred');
+        }
+      }
+      try {
+        await invalidateEventExports(
+          app,
+          artifact.eventId,
+          'Недействительна после изменения статуса файла',
+        );
+      } catch (error) {
+        app.log.warn(
+          { error, eventId: artifact.eventId },
+          'Export invalidation after admin artifact status change failed',
+        );
+      }
       await writeAudit(request, {
         action: 'artifact.status.change',
         entityType: 'artifact',

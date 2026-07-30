@@ -1088,7 +1088,10 @@ function Exports({
       <Card className="export-create">
         <div>
           <h2>Новая выгрузка</h2>
-          <p>Выберите мероприятие и нужный формат. Готовый файл появится ниже.</p>
+          <p>
+            Выберите мероприятие и нужный формат. Файл хранится 1 час; новая выгрузка того же
+            формата заменяет предыдущую.
+          </p>
         </div>
         <EventSelect value={eventId} onChange={onEventChange} />
         <div className="row-actions">

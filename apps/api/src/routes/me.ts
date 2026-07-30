@@ -1,7 +1,8 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
-import { artifacts, events, submissions, users } from '@cpi/db';
+import { artifacts, eventParticipants, events, submissions, users } from '@cpi/db';
 import { profileUpdateSchema } from '@cpi/shared';
+import { invalidateEventExports } from '../export-storage';
 import { serializeArtifact, serializeEvent, serializeSubmission } from '../serializers';
 
 export const meRoutes: FastifyPluginAsync = async (app) => {
@@ -43,6 +44,30 @@ export const meRoutes: FastifyPluginAsync = async (app) => {
         })
         .where(eq(users.id, request.currentUser!.id))
         .returning();
+      const participations = await app.db
+        .select({ eventId: eventParticipants.eventId })
+        .from(eventParticipants)
+        .where(eq(eventParticipants.userId, request.currentUser!.id));
+      const invalidations = await Promise.allSettled(
+        participations.map((participation) =>
+          invalidateEventExports(
+            app,
+            participation.eventId,
+            'Недействительна после изменения профиля участника',
+          ),
+        ),
+      );
+      for (const [index, invalidation] of invalidations.entries()) {
+        if (invalidation.status === 'rejected') {
+          app.log.warn(
+            {
+              error: invalidation.reason,
+              eventId: participations[index]?.eventId,
+            },
+            'Export invalidation after profile update failed',
+          );
+        }
+      }
       return {
         ...updated,
         telegramUserId: updated?.telegramUserId.toString(),
