@@ -42,8 +42,18 @@ export const telegramAuthSchema = z.object({
   initData: z.string().min(1).max(16_384),
 });
 
+const requiredFullNameSchema = z
+  .string()
+  .trim()
+  .min(5)
+  .max(200)
+  .transform((value) => value.replace(/\s+/g, ' '))
+  .refine((value) => value.split(' ').filter(Boolean).length >= 3, {
+    message: 'Укажите фамилию, имя и отчество',
+  });
+
 export const profileUpdateSchema = z.object({
-  fullName: z.string().trim().min(2).max(200),
+  fullName: requiredFullNameSchema,
   organization: nullableText(200),
   position: nullableText(200),
   phone: nullableText(100),

@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Button, Card } from '@cpi/ui';
 import { api } from '../lib/api';
+import { combineFullName, splitFullName } from '../lib/profile-name';
 import { CatAssistant } from './cat-assistant';
 import { PhoneIcon } from './icons';
 import { useSession } from './session-provider';
@@ -15,7 +16,10 @@ const wait = (milliseconds: number) =>
 
 export function ProfileView({ required = false }: { required?: boolean }) {
   const { user, refreshUser } = useSession();
-  const [fullName, setFullName] = useState(user?.fullName ?? '');
+  const initialName = splitFullName(user?.fullName);
+  const [lastName, setLastName] = useState(initialName.lastName);
+  const [firstName, setFirstName] = useState(initialName.firstName);
+  const [middleName, setMiddleName] = useState(initialName.middleName);
   const [organization, setOrganization] = useState(user?.organization ?? '');
   const [position, setPosition] = useState(user?.position ?? '');
   const [phone, setPhone] = useState(user?.phone ?? '');
@@ -26,7 +30,10 @@ export function ProfileView({ required = false }: { required?: boolean }) {
   const [messageTone, setMessageTone] = useState<NoticeTone>('info');
 
   useEffect(() => {
-    setFullName(user?.fullName ?? '');
+    const name = splitFullName(user?.fullName);
+    setLastName(name.lastName);
+    setFirstName(name.firstName);
+    setMiddleName(name.middleName);
     setOrganization(user?.organization ?? '');
     setPosition(user?.position ?? '');
     setPhone(user?.phone ?? '');
@@ -38,6 +45,7 @@ export function ProfileView({ required = false }: { required?: boolean }) {
     setSaving(true);
     setMessage(null);
     try {
+      const fullName = combineFullName({ lastName, firstName, middleName });
       await api('/me', {
         method: 'PATCH',
         body: JSON.stringify({ fullName, organization, position, phone, consent }),
@@ -58,8 +66,8 @@ export function ProfileView({ required = false }: { required?: boolean }) {
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const current = await api<CurrentUser>('/me');
       if (current.phone) {
+        // Refreshing the whole user here would overwrite unsaved registration fields.
         setPhone(current.phone);
-        await refreshUser();
         setMessage('Номер Telegram добавлен в профиль');
         setMessageTone('success');
         window.Telegram?.WebApp.HapticFeedback?.notificationOccurred('success');
@@ -119,7 +127,7 @@ export function ProfileView({ required = false }: { required?: boolean }) {
         live
         message={
           required
-            ? 'Давайте познакомимся. Обязательны только имя и согласие — остальное можно заполнить позже.'
+            ? 'Давайте познакомимся. Укажите фамилию, имя и отчество — остальные данные можно заполнить позже.'
             : message && messageTone === 'success'
               ? 'Готово, я запомнил изменения.'
               : 'Если данные изменились, поправьте их здесь — организатор увидит актуальную версию.'
@@ -128,14 +136,33 @@ export function ProfileView({ required = false }: { required?: boolean }) {
       <Card>
         <form className="form-stack" onSubmit={save}>
           <label>
-            <span>ФИО *</span>
+            <span>Фамилия *</span>
             <input
-              value={fullName}
-              onChange={(event) => setFullName(event.target.value)}
+              value={lastName}
+              onChange={(event) => setLastName(event.target.value)}
               required
-              minLength={2}
-              maxLength={200}
-              autoComplete="name"
+              maxLength={64}
+              autoComplete="family-name"
+            />
+          </label>
+          <label>
+            <span>Имя *</span>
+            <input
+              value={firstName}
+              onChange={(event) => setFirstName(event.target.value)}
+              required
+              maxLength={64}
+              autoComplete="given-name"
+            />
+          </label>
+          <label>
+            <span>Отчество *</span>
+            <input
+              value={middleName}
+              onChange={(event) => setMiddleName(event.target.value)}
+              required
+              maxLength={64}
+              autoComplete="additional-name"
             />
           </label>
           <label>

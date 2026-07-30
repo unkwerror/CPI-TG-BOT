@@ -11,9 +11,7 @@ interface TelegramInitDataSources {
 function launchParameters(value: string): URLSearchParams {
   const withoutPrefix = value.replace(/^[#?]/, '');
   const queryIndex = withoutPrefix.indexOf('?');
-  return new URLSearchParams(
-    queryIndex >= 0 ? withoutPrefix.slice(queryIndex + 1) : withoutPrefix,
-  );
+  return new URLSearchParams(queryIndex >= 0 ? withoutPrefix.slice(queryIndex + 1) : withoutPrefix);
 }
 
 function usableInitData(value: unknown): string | null {
@@ -27,9 +25,7 @@ export function extractTelegramInitData(sources: TelegramInitDataSources): strin
   if (sdkValue) return sdkValue;
 
   for (const locationValue of [sources.hash ?? '', sources.search ?? '']) {
-    const locationData = usableInitData(
-      launchParameters(locationValue).get('tgWebAppData'),
-    );
+    const locationData = usableInitData(launchParameters(locationValue).get('tgWebAppData'));
     if (locationData) return locationData;
   }
 

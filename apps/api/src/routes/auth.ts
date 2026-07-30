@@ -38,9 +38,6 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         maxAgeSeconds: app.config.TELEGRAM_AUTH_MAX_AGE_SECONDS,
       });
       const now = new Date();
-      const inferredFullName = [telegram.user.firstName, telegram.user.lastName]
-        .filter(Boolean)
-        .join(' ');
       const [databaseUser] = await app.db
         .insert(users)
         .values({
@@ -50,7 +47,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
           telegramLastName: telegram.user.lastName ?? null,
           telegramLanguageCode: telegram.user.languageCode ?? null,
           avatarUrl: telegram.user.photoUrl ?? null,
-          fullName: inferredFullName || null,
+          fullName: null,
           lastSeenAt: now,
         })
         .onConflictDoUpdate({
