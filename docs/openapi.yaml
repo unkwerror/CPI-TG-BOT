@@ -15,7 +15,32 @@ tags:
   - name: uploads
   - name: artifacts
   - name: admin
+  - name: integrations
 paths:
+  /api/v1/integrations/crm/artifacts/{artifactId}/download:
+    get:
+      tags: [integrations]
+      security:
+        - integrationBearer: []
+      summary: Выдать CRM короткоживущую ссылку на исходный файл Locker
+      parameters:
+        - name: artifactId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Подписанная ссылка на единственный экземпляр файла в Locker
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url, expiresInSeconds]
+                properties:
+                  url: { type: string, format: uri }
+                  expiresInSeconds: { type: integer, minimum: 1 }
+        '401': { description: Неверный серверный токен интеграции }
+        '404': { $ref: '#/components/responses/NotFound' }
   /api/v1/auth/telegram:
     post:
       tags: [auth]
@@ -382,6 +407,9 @@ components:
       type: apiKey
       in: cookie
       name: cpi_artifacts_session
+    integrationBearer:
+      type: http
+      scheme: bearer
   parameters:
     CsrfToken:
       name: x-csrf-token

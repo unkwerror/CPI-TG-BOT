@@ -5,7 +5,7 @@ import {
   GetObjectCommand,
   HeadObjectCommand,
 } from '@aws-sdk/client-s3';
-import { and, eq, inArray, isNull, ne } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { artifacts, exportJobs, outboxEvents, submissions } from '@cpi/db';
 import { evaluateFilePolicy } from '@cpi/shared';
 import type { WorkerContext } from './context';
@@ -165,6 +165,9 @@ export async function verifyArtifact(context: WorkerContext, artifactId: string)
         .where(and(eq(artifacts.id, artifact.id), isNull(artifacts.deletedAt)))
         .returning({ id: artifacts.id });
       if (!updated) return false;
+      await transaction.execute(
+        sql`select id from ${submissions} where ${submissions.id} = ${artifact.submissionId} for update`,
+      );
       const notReady = await transaction
         .select({ id: artifacts.id })
         .from(artifacts)
@@ -184,12 +187,20 @@ export async function verifyArtifact(context: WorkerContext, artifactId: string)
           .where(eq(submissions.id, artifact.submissionId));
         await transaction
           .insert(outboxEvents)
-          .values({
-            type: 'submission.ready',
-            aggregateType: 'submission',
-            aggregateId: artifact.submissionId,
-            payload: { submissionId: artifact.submissionId },
-          })
+          .values([
+            {
+              type: 'submission.ready',
+              aggregateType: 'submission',
+              aggregateId: artifact.submissionId,
+              payload: { submissionId: artifact.submissionId },
+            },
+            {
+              type: 'crm.submission.sync',
+              aggregateType: 'submission',
+              aggregateId: artifact.submissionId,
+              payload: { submissionId: artifact.submissionId },
+            },
+          ])
           .onConflictDoNothing();
       }
       return true;

@@ -8,6 +8,7 @@ import { parseEnvironment, workerEnvironmentSchema } from '@cpi/config';
 import { createDatabase } from '@cpi/db';
 import type { WorkerContext } from './context';
 import { buildExport } from './exporter';
+import { syncSubmissionToCrm } from './crm-sync';
 import { runMaintenance } from './maintenance';
 import { dispatchOutbox } from './outbox';
 import { verifyArtifact } from './verifier';
@@ -41,6 +42,7 @@ const queueOptions = { connection, prefix: config.REDIS_PREFIX };
 const artifactQueue = new Queue('artifact-verification', queueOptions);
 const exportQueue = new Queue('exports', queueOptions);
 const notificationQueue = new Queue('notifications', queueOptions);
+const crmQueue = new Queue('crm-sync', queueOptions);
 
 const artifactWorker = new Worker(
   'artifact-verification',
@@ -70,7 +72,22 @@ const exportWorker = new Worker(
   },
 );
 
-for (const worker of [artifactWorker, exportWorker]) {
+const crmWorker = new Worker(
+  'crm-sync',
+  async (job) => {
+    const submissionId = String((job.data as { submissionId?: string }).submissionId ?? '');
+    if (!submissionId) throw new Error('submissionId is required');
+    await syncSubmissionToCrm(context, submissionId);
+  },
+  {
+    ...queueOptions,
+    concurrency: 2,
+    lockDuration: 2 * 60 * 1_000,
+    limiter: { max: 240, duration: 60_000 },
+  },
+);
+
+for (const worker of [artifactWorker, exportWorker, crmWorker]) {
   worker.on('completed', (job) =>
     logger.info({ queue: worker.name, jobId: job.id }, 'Job completed'),
   );
@@ -96,6 +113,7 @@ const dispatch = async () => {
       artifacts: artifactQueue,
       exports: exportQueue,
       notifications: notificationQueue,
+      crm: crmQueue,
     });
   } catch (error) {
     logger.error({ error }, 'Outbox polling failed');
@@ -162,9 +180,11 @@ const close = async (signal: string) => {
   await Promise.allSettled([
     artifactWorker.close(),
     exportWorker.close(),
+    crmWorker.close(),
     artifactQueue.close(),
     exportQueue.close(),
     notificationQueue.close(),
+    crmQueue.close(),
     new Promise<void>((resolve) => healthServer.close(() => resolve())),
   ]);
   s3.destroy();

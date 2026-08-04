@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { and, asc, desc, eq, gt, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm';
-import { artifacts, eventParticipants, events, submissions } from '@cpi/db';
+import { artifacts, eventParticipants, events, outboxEvents, submissions } from '@cpi/db';
 import {
   AppError,
   eventAcceptsUploads,
@@ -217,6 +217,25 @@ export const eventRoutes: FastifyPluginAsync = async (app) => {
             target: [eventParticipants.eventId, eventParticipants.userId],
             set: { lastSubmissionAt: new Date() },
           });
+        if (!body.hasFiles) {
+          await transaction
+            .insert(outboxEvents)
+            .values([
+              {
+                type: 'submission.ready',
+                aggregateType: 'submission',
+                aggregateId: created.id,
+                payload: { submissionId: created.id },
+              },
+              {
+                type: 'crm.submission.sync',
+                aggregateType: 'submission',
+                aggregateId: created.id,
+                payload: { submissionId: created.id },
+              },
+            ])
+            .onConflictDoNothing();
+        }
         return created;
       });
       try {

@@ -9,6 +9,7 @@ export async function dispatchOutbox(
     artifacts: Queue;
     exports: Queue;
     notifications: Queue;
+    crm: Queue;
   },
 ): Promise<number> {
   const rows = await context.db
@@ -54,6 +55,18 @@ export async function dispatchOutbox(
             backoff: { type: 'exponential', delay: 5_000 },
             removeOnComplete: 1_000,
             removeOnFail: 1_000,
+          },
+        );
+      } else if (row.type === 'crm.submission.sync') {
+        await queues.crm.add(
+          'sync-submission-to-crm',
+          { submissionId: row.aggregateId },
+          {
+            jobId: row.id,
+            attempts: 10,
+            backoff: { type: 'exponential', delay: 5_000 },
+            removeOnComplete: 1_000,
+            removeOnFail: 2_000,
           },
         );
       }

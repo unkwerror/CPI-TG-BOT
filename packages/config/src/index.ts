@@ -58,6 +58,7 @@ export const apiEnvironmentSchema = z
     MULTIPART_THRESHOLD_BYTES: integer(20 * 1024 ** 2, 5 * 1024 ** 2),
     MULTIPART_PART_SIZE_BYTES: integer(10 * 1024 ** 2, 5 * 1024 ** 2),
     GLOBAL_MAX_FILE_SIZE_BYTES: integer(2 * 1024 ** 3, 1),
+    CRM_INTEGRATION_TOKEN: z.string().min(32),
     LOG_LEVEL: z
       .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
       .default('info'),
@@ -84,6 +85,8 @@ export const workerEnvironmentSchema = z
     ABANDONED_UPLOAD_HOURS: integer(1, 1),
     DELETED_OBJECT_RETENTION_DAYS: integer(0),
     WORKER_CONCURRENCY: integer(2, 1),
+    CRM_API_URL: z.url(),
+    CRM_INTEGRATION_TOKEN: z.string().min(32),
     LOG_LEVEL: z
       .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
       .default('info'),

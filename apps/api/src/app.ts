@@ -18,6 +18,7 @@ import { adminExportRoutes } from './routes/admin-exports';
 import { adminRoleRoutes } from './routes/admin-roles';
 import { adminRoutes } from './routes/admin';
 import { authRoutes } from './routes/auth';
+import { crmIntegrationRoutes } from './routes/crm-integration';
 import { eventRoutes } from './routes/events';
 import { meRoutes } from './routes/me';
 import { uploadRoutes } from './routes/uploads';
@@ -123,6 +124,7 @@ export async function buildApp(config: ApiEnvironment) {
         { name: 'submissions', description: 'Отправки' },
         { name: 'uploads', description: 'Прямая S3-загрузка' },
         { name: 'admin', description: 'Администрирование' },
+        { name: 'integrations', description: 'Серверная интеграция с CRM' },
       ],
     },
   });
@@ -135,6 +137,7 @@ export async function buildApp(config: ApiEnvironment) {
   await app.register(
     async (versioned) => {
       await versioned.register(authRoutes);
+      await versioned.register(crmIntegrationRoutes);
       await versioned.register(meRoutes);
       await versioned.register(eventRoutes);
       await versioned.register(uploadRoutes);

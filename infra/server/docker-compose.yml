@@ -16,6 +16,8 @@ x-app-environment: &app-environment
   S3_EXPORT_BUCKET: ${S3_EXPORT_BUCKET:-artifacts-exports}
   S3_FORCE_PATH_STYLE: 'true'
   TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+  CRM_API_URL: ${CRM_API_URL}
+  CRM_INTEGRATION_TOKEN: ${CRM_INTEGRATION_TOKEN}
   LOG_LEVEL: ${LOG_LEVEL:-info}
 
 x-logging: &default-logging
@@ -224,7 +226,9 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
-    networks: [backend]
+    networks:
+      backend: {}
+      egress: {}
     healthcheck:
       test: [CMD, wget, -qO-, http://127.0.0.1:3003/health/live]
       interval: 10s
@@ -296,6 +300,7 @@ services:
 networks:
   backend:
     internal: true
+  egress: {}
   caddy:
     external: true
     name: cpi-artifacts-caddy

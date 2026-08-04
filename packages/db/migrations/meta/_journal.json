@@ -15,6 +15,13 @@
       "when": 1785424476367,
       "tag": "0001_boring_white_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785834300000,
+      "tag": "0002_crm_integration",
+      "breakpoints": true
     }
   ]
 }

@@ -50,6 +50,7 @@ export const users = pgTable(
     organization: text('organization'),
     position: text('position'),
     phone: text('phone'),
+    crmPersonId: uuid('crm_person_id'),
     avatarUrl: text('avatar_url'),
     consentAt: timestamp('consent_at', { withTimezone: true }),
     status: userStatusEnum('status').notNull().default('active'),
@@ -60,6 +61,9 @@ export const users = pgTable(
   (table) => [
     index('users_username_idx').on(table.telegramUsername),
     index('users_last_seen_idx').on(table.lastSeenAt),
+    uniqueIndex('users_crm_person_uidx')
+      .on(table.crmPersonId)
+      .where(sql`${table.crmPersonId} is not null`),
   ],
 );
 
@@ -195,12 +199,21 @@ export const submissions = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     submittedAt: timestamp('submitted_at', { withTimezone: true }),
+    crmArtifactId: uuid('crm_artifact_id'),
+    crmArtifactVersionId: uuid('crm_artifact_version_id'),
+    crmSyncedAt: timestamp('crm_synced_at', { withTimezone: true }),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
   },
   (table) => [
     uniqueIndex('submissions_user_idempotency_uq').on(table.userId, table.idempotencyKey),
     index('submissions_event_created_idx').on(table.eventId, table.createdAt),
     index('submissions_user_created_idx').on(table.userId, table.createdAt),
+    uniqueIndex('submissions_crm_artifact_uidx')
+      .on(table.crmArtifactId)
+      .where(sql`${table.crmArtifactId} is not null`),
+    uniqueIndex('submissions_crm_version_uidx')
+      .on(table.crmArtifactVersionId)
+      .where(sql`${table.crmArtifactVersionId} is not null`),
   ],
 );
 
