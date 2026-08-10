@@ -77,6 +77,42 @@ export async function api<T>(
   return payload as T;
 }
 
+/**
+ * Скачивает ответ как файл. Обычный `api` не подходит: он всегда разбирает JSON,
+ * а выгрузка приходит текстом CSV.
+ */
+export async function apiDownloadFile(path: string, fallbackName: string): Promise<void> {
+  const headers = new Headers();
+  const bearer = getSessionToken();
+  if (bearer) headers.set('authorization', `Bearer ${bearer}`);
+  const response = await fetch(`/api/v1${path}`, {
+    headers,
+    credentials: 'include',
+    cache: 'no-store',
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as {
+      error?: { code?: string; message?: string };
+    } | null;
+    throw new ApiClientError(
+      payload?.error?.message ?? 'Не удалось подготовить выгрузку',
+      payload?.error?.code ?? 'REQUEST_FAILED',
+      response.status,
+    );
+  }
+  const disposition = response.headers.get('content-disposition') ?? '';
+  const suggested = /filename="([^"]+)"/u.exec(disposition)?.[1];
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = suggested ?? fallbackName;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 export async function authenticate(): Promise<AuthResponse> {
   try {
     const session = await api<AuthResponse>('/auth/session');

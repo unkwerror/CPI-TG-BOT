@@ -9,6 +9,7 @@ COPY apps/worker/package.json apps/worker/package.json
 COPY packages/config/package.json packages/config/package.json
 COPY packages/db/package.json packages/db/package.json
 COPY packages/shared/package.json packages/shared/package.json
+COPY packages/spreadsheet/package.json packages/spreadsheet/package.json
 COPY packages/ui/package.json packages/ui/package.json
 RUN npm ci
 

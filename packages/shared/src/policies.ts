@@ -170,3 +170,46 @@ export function parseCursorPagination<T extends { id: string }>(
     nextCursor: hasMore ? (items.at(-1)?.id ?? null) : null,
   };
 }
+
+export interface KeysetPosition {
+  createdAt: Date;
+  id: string;
+}
+
+/**
+ * Курсор для сортировки по дате: одного id недостаточно, потому что порядок
+ * задаёт created_at, и сравнение по id пропускало бы или дублировало строки.
+ */
+export function encodeKeysetCursor(position: KeysetPosition): string {
+  return Buffer.from(`${position.createdAt.toISOString()}|${position.id}`, 'utf8').toString(
+    'base64url',
+  );
+}
+
+export function decodeKeysetCursor(cursor: string): KeysetPosition | null {
+  let decoded: string;
+  try {
+    decoded = Buffer.from(cursor, 'base64url').toString('utf8');
+  } catch {
+    return null;
+  }
+  const separator = decoded.lastIndexOf('|');
+  if (separator <= 0) return null;
+  const createdAt = new Date(decoded.slice(0, separator));
+  const id = decoded.slice(separator + 1);
+  if (Number.isNaN(createdAt.getTime()) || !id) return null;
+  return { createdAt, id };
+}
+
+export function parseKeysetPagination<T extends KeysetPosition>(
+  rows: T[],
+  limit: number,
+): { items: T[]; nextCursor: string | null } {
+  const hasMore = rows.length > limit;
+  const items = hasMore ? rows.slice(0, limit) : rows;
+  const last = items.at(-1);
+  return {
+    items,
+    nextCursor: hasMore && last ? encodeKeysetCursor(last) : null,
+  };
+}

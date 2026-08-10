@@ -11,8 +11,8 @@ import * as archiverModule from 'archiver';
 import { and, asc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 import { artifacts, eventParticipants, events, exportJobs, submissions, users } from '@cpi/db';
 import { safeZipSegment } from '@cpi/shared';
+import { writeXlsxWorkbook, type SpreadsheetColumn } from '@cpi/spreadsheet';
 import type { WorkerContext } from './context';
-import { writeXlsxWorkbook, type SpreadsheetColumn } from './xlsx';
 
 type ParticipantRow = Awaited<ReturnType<typeof loadParticipants>>[number];
 type ArtifactRow = Awaited<ReturnType<typeof loadArtifacts>>[number];

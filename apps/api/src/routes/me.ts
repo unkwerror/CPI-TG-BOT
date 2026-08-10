@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
-import { artifacts, eventParticipants, events, submissions, users } from '@cpi/db';
+import { artifacts, eventParticipants, events, outboxEvents, submissions, users } from '@cpi/db';
 import { profileUpdateSchema } from '@cpi/shared';
 import { invalidateEventExports } from '../export-storage';
 import { serializeArtifact, serializeEvent, serializeSubmission } from '../serializers';
@@ -32,18 +32,35 @@ export const meRoutes: FastifyPluginAsync = async (app) => {
     { preHandler: [app.requireAuth, app.requireCsrf], schema: { tags: ['profile'] } },
     async (request) => {
       const body = profileUpdateSchema.parse(request.body);
-      const [updated] = await app.db
-        .update(users)
-        .set({
-          fullName: body.fullName,
-          organization: body.organization ?? null,
-          position: body.position ?? null,
-          phone: body.phone ?? null,
-          consentAt: request.currentUser!.consentAt ?? new Date(),
-          lastSeenAt: new Date(),
-        })
-        .where(eq(users.id, request.currentUser!.id))
-        .returning();
+      const updated = await app.db.transaction(async (transaction) => {
+        const [row] = await transaction
+          .update(users)
+          .set({
+            fullName: body.fullName,
+            organization: body.organization ?? null,
+            position: body.position ?? null,
+            phone: body.phone ?? null,
+            consentAt: request.currentUser!.consentAt ?? new Date(),
+            lastSeenAt: new Date(),
+          })
+          .where(eq(users.id, request.currentUser!.id))
+          .returning();
+        // Карточку в CRM создаёт только полное ФИО, а появляется оно именно здесь:
+        // до заполнения профиля CRM отказывала, и адресат не попадал в рассылку.
+        await transaction
+          .insert(outboxEvents)
+          .values({
+            type: 'crm.user.sync',
+            aggregateType: 'user',
+            aggregateId: request.currentUser!.id,
+            payload: { userId: request.currentUser!.id },
+          })
+          .onConflictDoUpdate({
+            target: [outboxEvents.type, outboxEvents.aggregateType, outboxEvents.aggregateId],
+            set: { processedAt: null, availableAt: new Date(), attempts: 0, lastError: null },
+          });
+        return row;
+      });
       const participations = await app.db
         .select({ eventId: eventParticipants.eventId })
         .from(eventParticipants)

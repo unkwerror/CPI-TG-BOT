@@ -2,6 +2,7 @@ import { AbortMultipartUploadCommand, DeleteObjectCommand } from '@aws-sdk/clien
 import { and, eq, inArray, isNotNull, isNull, lt, or } from 'drizzle-orm';
 import { artifacts, exportJobs } from '@cpi/db';
 import type { WorkerContext } from './context';
+import { markSubmissionFailed } from './submission-state';
 
 function isMissingMultipartUpload(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
@@ -83,15 +84,20 @@ export async function runMaintenance(context: WorkerContext): Promise<{
       context.logger.warn({ error, artifactId: artifact.id }, 'Abandoned S3 upload cleanup failed');
       continue;
     }
-    await context.db
+    const [failed] = await context.db
       .update(artifacts)
       .set({
         status: 'failed',
         statusReason: 'Истёк срок незавершённой загрузки',
         uploadId: null,
         storageDeletedAt: new Date(),
+        updatedAt: new Date(),
       })
-      .where(eq(artifacts.id, artifact.id));
+      .where(eq(artifacts.id, artifact.id))
+      .returning({ id: artifacts.id });
+    // Файл больше не появится, поэтому отправку нужно снять с проверки: иначе она
+    // навсегда остаётся в `processing`, а участник видит вечное «Проверяется».
+    if (failed) await markSubmissionFailed(context, artifact.submissionId, artifact.id);
     abandonedUploads += 1;
   }
 

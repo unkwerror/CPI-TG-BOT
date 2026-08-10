@@ -28,6 +28,7 @@ export function EventsView({
   const [city, setCity] = useState('');
   const [format, setFormat] = useState('');
   const [status, setStatus] = useState('');
+  const [includePast, setIncludePast] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,6 +39,7 @@ export function EventsView({
       if (city) parameters.set('city', city);
       if (format) parameters.set('format', format);
       if (status) parameters.set('status', status);
+      if (includePast) parameters.set('includePast', 'true');
       setLoading(true);
       void api<{ items: EventItem[] }>(`/events?${parameters}`)
         .then((result) => {
@@ -48,7 +50,7 @@ export function EventsView({
         .finally(() => setLoading(false));
     }, 300);
     return () => clearTimeout(timer);
-  }, [query, city, format, status]);
+  }, [query, city, format, status, includePast]);
 
   const cities = useMemo(
     () => [...new Set(events.map((event) => event.city).filter(Boolean) as string[])].sort(),
@@ -62,7 +64,9 @@ export function EventsView({
     : events.length === 0
       ? {
           mood: 'sleep',
-          message: 'Ничего не нашёл. Попробуйте убрать фильтр или ввести короткий код события.',
+          message: includePast
+            ? 'Ничего не нашёл. Попробуйте убрать фильтр или ввести короткий код события.'
+            : 'Ничего не нашёл. Прошедшие мероприятия скрыты — включите их галочкой выше.',
         }
       : query
         ? {
@@ -125,6 +129,14 @@ export function EventsView({
           <option value="published">Предстоящее</option>
           <option value="finished">Завершено</option>
         </select>
+        <label className="filter-toggle">
+          <input
+            type="checkbox"
+            checked={includePast}
+            onChange={(event) => setIncludePast(event.target.checked)}
+          />
+          Показать прошедшие
+        </label>
       </div>
 
       {error ? <div className="notice error">{error}</div> : null}
@@ -138,7 +150,11 @@ export function EventsView({
         <div className="empty-state cat-empty-state">
           <Image src="/cats/cat-5.svg" alt="" width={180} height={180} unoptimized />
           <h2>Ничего не найдено</h2>
-          <p>Проверьте название или сбросьте фильтры.</p>
+          <p>
+            {includePast
+              ? 'Проверьте название или сбросьте фильтры.'
+              : 'Прошедшие мероприятия скрыты. Включите «Показать прошедшие» или сбросьте фильтры.'}
+          </p>
         </div>
       ) : (
         <div className="event-list">

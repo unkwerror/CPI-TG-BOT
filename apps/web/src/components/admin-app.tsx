@@ -11,7 +11,7 @@ import {
   type EventStatus,
   type ExportKind,
 } from '@cpi/shared';
-import { api } from '../lib/api';
+import { api, apiDownloadFile } from '../lib/api';
 import {
   NOVOSIBIRSK_LABEL,
   NOVOSIBIRSK_TIME_ZONE,
@@ -27,7 +27,15 @@ import { UserIcon } from './icons';
 import { useSession } from './session-provider';
 
 type AdminTab =
-  'dashboard' | 'events' | 'participants' | 'artifacts' | 'exports' | 'audit' | 'admins';
+  | 'dashboard'
+  | 'events'
+  | 'requests'
+  | 'users'
+  | 'participants'
+  | 'artifacts'
+  | 'exports'
+  | 'audit'
+  | 'admins';
 
 interface DashboardData {
   activeEvents: number;
@@ -86,6 +94,8 @@ export function AdminApp() {
   const tabs: Array<{ key: AdminTab; label: string }> = [
     { key: 'dashboard', label: 'Обзор' },
     { key: 'events', label: 'Мероприятия' },
+    { key: 'requests', label: 'Запросы' },
+    { key: 'users', label: 'Пользователи' },
     { key: 'participants', label: 'Участники' },
     { key: 'artifacts', label: 'Файлы' },
     { key: 'exports', label: 'Экспорт' },
@@ -149,6 +159,8 @@ export function AdminApp() {
             }}
           />
         ) : null}
+        {tab === 'requests' ? <Requests currentUserId={user.id} /> : null}
+        {tab === 'users' ? <Audience /> : null}
         {tab === 'participants' ? (
           <Participants eventId={eventId} onEventChange={setEventId} />
         ) : null}
@@ -280,6 +292,7 @@ interface EventFormState {
   acceptUploadsUntil: string;
   maxFileSizeMb: number;
   directAccessEnabled: boolean;
+  acceptsRequests: boolean;
 }
 
 const blankEvent = (): EventFormState => ({
@@ -299,6 +312,7 @@ const blankEvent = (): EventFormState => ({
   acceptUploadsUntil: novosibirskInputAfter(48),
   maxFileSizeMb: 500,
   directAccessEnabled: true,
+  acceptsRequests: false,
 });
 
 function eventToForm(event: EventItem): EventFormState {
@@ -319,6 +333,7 @@ function eventToForm(event: EventItem): EventFormState {
     acceptUploadsUntil: toNovosibirskInput(event.acceptUploadsUntil),
     maxFileSizeMb: Math.round(event.maxFileSizeBytes / 1024 ** 2),
     directAccessEnabled: event.directAccessEnabled,
+    acceptsRequests: event.acceptsRequests,
   };
 }
 
@@ -389,6 +404,24 @@ function EventManagement({
     }));
   };
 
+  /**
+   * Прошедшее мероприятие убирается из приложения переводом в архив: участники
+   * его больше не видят, а выгрузки и файлы остаются на месте.
+   */
+  const setHidden = async (event: EventItem, hidden: boolean) => {
+    setMessage(null);
+    try {
+      await api(`/admin/events/${event.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: hidden ? 'archived' : 'finished' }),
+      });
+      await load();
+      setMessage(hidden ? `«${event.title}» скрыто у участников` : `«${event.title}» снова видно`);
+    } catch (caught) {
+      setMessage(caught instanceof Error ? caught.message : 'Не удалось изменить видимость');
+    }
+  };
+
   const updateAcceptsFrom = (acceptUploadsFrom: string) => {
     setForm((current) => ({
       ...current,
@@ -437,6 +470,7 @@ function EventManagement({
         allowedMimeTypes: [],
         blockedExtensions: ['exe', 'bat', 'cmd', 'msi'],
         directAccessEnabled: form.directAccessEnabled,
+        acceptsRequests: form.acceptsRequests,
       };
       const saved = await api<EventItem>(
         editing ? `/admin/events/${editing.id}` : '/admin/events',
@@ -588,6 +622,14 @@ function EventManagement({
             />
             <span>Доступно по прямой ссылке и QR-коду</span>
           </label>
+          <label className="checkbox-field admin-wide">
+            <input
+              type="checkbox"
+              checked={form.acceptsRequests}
+              onChange={(event) => update('acceptsRequests', event.target.checked)}
+            />
+            <span>Принимает запросы через бота — событие появится кнопкой «Выбрать событие»</span>
+          </label>
           {message ? (
             <div
               className={`notice ${message.includes('сохранено') ? 'success' : 'error'} admin-wide`}
@@ -679,6 +721,15 @@ function EventManagement({
               >
                 Изменить
               </Button>
+              {event.status === 'archived' ? (
+                <Button type="button" onClick={() => void setHidden(event, false)}>
+                  Вернуть
+                </Button>
+              ) : new Date(event.endsAt) < new Date() ? (
+                <Button type="button" onClick={() => void setHidden(event, true)}>
+                  Скрыть
+                </Button>
+              ) : null}
               <Button
                 className="danger-text-button"
                 type="button"
@@ -767,6 +818,548 @@ interface AdminParticipant extends CurrentUser {
   submissionCount: number;
   artifactCount: number;
   totalBytes: number;
+}
+
+interface EventRequestItem {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  status: 'new' | 'in_progress' | 'closed';
+  text: string;
+  attachmentCount: number;
+  eventId: string;
+  eventTitle: string;
+  eventShortCode: string;
+  userId: string;
+  authorName: string | null;
+  authorTelegramName: string | null;
+  authorUsername: string | null;
+  authorTelegramUserId: string;
+  authorPhone: string | null;
+  assignedTo: string | null;
+  assigneeName: string | null;
+}
+
+type RequestFilterKey = 'all' | 'new' | 'in_progress' | 'closed';
+
+const REQUEST_FILTERS: Array<{ key: RequestFilterKey; label: string }> = [
+  { key: 'new', label: 'Новые' },
+  { key: 'in_progress', label: 'В работе' },
+  { key: 'closed', label: 'Закрытые' },
+  { key: 'all', label: 'Все' },
+];
+
+const REQUEST_STATUS_LABELS: Readonly<Record<EventRequestItem['status'], string>> = {
+  new: 'Новый',
+  in_progress: 'В работе',
+  closed: 'Закрыт',
+};
+
+const REQUEST_PAGE_SIZE = 50;
+
+/**
+ * Запросы из бота: человек описал словами, с чем нужна помощь. Отвечает команда
+ * вручную в Telegram, поэтому здесь только разбор очереди и ссылка на автора.
+ */
+function Requests({ currentUserId }: { currentUserId: string }) {
+  const [items, setItems] = useState<EventRequestItem[]>([]);
+  const [counters, setCounters] = useState<Record<RequestFilterKey, number> | null>(null);
+  const [total, setTotal] = useState(0);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [filter, setFilter] = useState<RequestFilterKey>('new');
+  const [query, setQuery] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+
+  const parameters = useCallback(
+    (extra?: Record<string, string>) => {
+      const search = new URLSearchParams({ limit: String(REQUEST_PAGE_SIZE), ...extra });
+      if (filter !== 'all') search.set('status', filter);
+      if (query.trim()) search.set('q', query.trim());
+      return search;
+    },
+    [filter, query],
+  );
+
+  const load = useCallback(async () => {
+    const result = await api<{
+      items: EventRequestItem[];
+      nextCursor: string | null;
+      total: number;
+      counters: Record<RequestFilterKey, number>;
+    }>(`/admin/requests?${parameters()}`);
+    setItems(result.items);
+    setNextCursor(result.nextCursor);
+    setTotal(result.total);
+    setCounters(result.counters);
+  }, [parameters]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void load().catch((caught: unknown) => {
+        setNotice({
+          kind: 'error',
+          text: caught instanceof Error ? caught.message : 'Не удалось загрузить запросы',
+        });
+      });
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [load]);
+
+  const loadMore = async () => {
+    if (!nextCursor) return;
+    setBusy(true);
+    try {
+      const result = await api<{ items: EventRequestItem[]; nextCursor: string | null }>(
+        `/admin/requests?${parameters({ cursor: nextCursor })}`,
+      );
+      setItems((previous) => [...previous, ...result.items]);
+      setNextCursor(result.nextCursor);
+    } catch (caught) {
+      setNotice({
+        kind: 'error',
+        text: caught instanceof Error ? caught.message : 'Не удалось загрузить следующую страницу',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const change = async (
+    item: EventRequestItem,
+    patch: { status?: EventRequestItem['status']; assignedTo?: string | null },
+  ) => {
+    setBusy(true);
+    setNotice(null);
+    try {
+      await api(`/admin/requests/${item.id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+      await load();
+    } catch (caught) {
+      setNotice({
+        kind: 'error',
+        text: caught instanceof Error ? caught.message : 'Не удалось изменить запрос',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const authorLink = (item: EventRequestItem) =>
+    item.authorUsername
+      ? `https://t.me/${item.authorUsername}`
+      : `tg://user?id=${item.authorTelegramUserId}`;
+
+  return (
+    <>
+      {notice ? (
+        <div className={`notice ${notice.kind}`} aria-live="polite">
+          {notice.text}
+        </div>
+      ) : null}
+      <Card className="admin-table-card">
+        <div className="admin-toolbar">
+          <input
+            className="admin-search"
+            placeholder="ФИО, username, телефон или текст запроса"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </div>
+        <div className="admin-filter-row" role="group" aria-label="Отбор запросов">
+          {REQUEST_FILTERS.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              className={filter === item.key ? 'chip active' : 'chip'}
+              onClick={() => setFilter(item.key)}
+            >
+              {item.label}
+              {counters ? <span> · {counters[item.key]}</span> : null}
+            </button>
+          ))}
+        </div>
+        <p className="admin-hint">
+          Найдено: {total}. Ответ пишется автору в Telegram — кнопка в строке запроса.
+        </p>
+        {items.length === 0 ? (
+          <p className="admin-hint">
+            Запросов нет. Они появляются, когда человек выбирает событие в боте и описывает, с чем
+            нужна помощь. Приём запросов включается галочкой в карточке мероприятия.
+          </p>
+        ) : (
+          <Table
+            headings={['Запрос', 'Мероприятие', 'Автор', 'Статус', 'Ответственный', 'Действия']}
+          >
+            {items.map((item) => (
+              <tr key={item.id}>
+                <td>
+                  <span className="request-text">{item.text}</span>
+                  <small>{formatNovosibirskDateTime(item.createdAt)}</small>
+                  {item.attachmentCount > 0 ? (
+                    <small>вложений: {item.attachmentCount} — они в чате с автором</small>
+                  ) : null}
+                </td>
+                <td>
+                  {item.eventTitle}
+                  <small>{item.eventShortCode}</small>
+                </td>
+                <td>
+                  {item.authorName ?? item.authorTelegramName ?? 'Без имени'}
+                  <small>
+                    {item.authorUsername ? `@${item.authorUsername}` : item.authorTelegramUserId}
+                  </small>
+                  {item.authorPhone ? <small>{item.authorPhone}</small> : null}
+                </td>
+                <td>
+                  <span
+                    className={`status-pill ${
+                      item.status === 'new'
+                        ? 'processing'
+                        : item.status === 'in_progress'
+                          ? 'active'
+                          : ''
+                    }`}
+                  >
+                    {REQUEST_STATUS_LABELS[item.status]}
+                  </span>
+                </td>
+                <td>{item.assigneeName ?? (item.assignedTo ? 'Без имени' : '—')}</td>
+                <td>
+                  <div className="row-actions">
+                    <a
+                      className="text-button"
+                      href={authorLink(item)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Ответить
+                    </a>
+                    {item.status === 'new' ? (
+                      <Button
+                        className="compact-button"
+                        type="button"
+                        disabled={busy}
+                        onClick={() =>
+                          void change(item, { status: 'in_progress', assignedTo: currentUserId })
+                        }
+                      >
+                        Взять в работу
+                      </Button>
+                    ) : null}
+                    {item.status === 'closed' ? (
+                      <Button
+                        className="compact-button"
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void change(item, { status: 'in_progress' })}
+                      >
+                        Вернуть в работу
+                      </Button>
+                    ) : (
+                      <Button
+                        className="compact-button"
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void change(item, { status: 'closed' })}
+                      >
+                        Закрыть
+                      </Button>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </Table>
+        )}
+        {nextCursor ? (
+          <div className="admin-toolbar">
+            <Button type="button" disabled={busy} onClick={() => void loadMore()}>
+              Показать ещё
+            </Button>
+            <span className="admin-hint">
+              Показано {items.length} из {total}
+            </span>
+          </div>
+        ) : null}
+      </Card>
+    </>
+  );
+}
+
+interface AudienceUser {
+  id: string;
+  createdAt: string;
+  telegramUserId: string;
+  telegramUsername: string | null;
+  telegramName: string | null;
+  fullName: string | null;
+  phone: string | null;
+  organization: string | null;
+  position: string | null;
+  source: 'bot' | 'miniapp' | 'import';
+  botStartedAt: string | null;
+  botBlockedAt: string | null;
+  consentAt: string | null;
+  lastSeenAt: string;
+  crmPersonId: string | null;
+  crmSyncedAt: string | null;
+  crmSyncError: string | null;
+  eventCount: number;
+  submissionCount: number;
+  artifactCount: number;
+  totalBytes: number;
+}
+
+interface AudienceCounters {
+  all: number;
+  bot: number;
+  unregistered: number;
+  registered: number;
+  participants: number;
+  crmPending: number;
+  botBlocked: number;
+}
+
+type AudienceFilterKey =
+  'all' | 'bot' | 'unregistered' | 'registered' | 'participants' | 'crm_pending';
+
+const AUDIENCE_FILTERS: Array<{
+  key: AudienceFilterKey;
+  label: string;
+  counter: keyof AudienceCounters;
+}> = [
+  { key: 'all', label: 'Все', counter: 'all' },
+  { key: 'bot', label: 'Запускали бота', counter: 'bot' },
+  { key: 'unregistered', label: 'Без профиля', counter: 'unregistered' },
+  { key: 'registered', label: 'С профилем', counter: 'registered' },
+  { key: 'participants', label: 'Участники мероприятий', counter: 'participants' },
+  { key: 'crm_pending', label: 'Не в CRM', counter: 'crmPending' },
+];
+
+const AUDIENCE_PAGE_SIZE = 100;
+
+const AUDIENCE_SOURCES: Readonly<Record<AudienceUser['source'], string>> = {
+  bot: 'Бот',
+  miniapp: 'Приложение',
+  import: 'Импорт',
+};
+
+function crmState(item: AudienceUser): { label: string; className: string } {
+  if (item.crmPersonId) return { label: 'В CRM', className: 'status-pill active' };
+  if (item.crmSyncError) return { label: 'Не принят', className: 'status-pill error' };
+  return { label: 'В очереди', className: 'status-pill processing' };
+}
+
+/**
+ * Все, кто хоть раз обратился к боту, а не только участники мероприятий: именно
+ * этот список рассылка в CRM берёт как аудиторию.
+ */
+function Audience() {
+  const [items, setItems] = useState<AudienceUser[]>([]);
+  const [counters, setCounters] = useState<AudienceCounters | null>(null);
+  const [total, setTotal] = useState(0);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [filter, setFilter] = useState<AudienceFilterKey>('all');
+  const [query, setQuery] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<{ kind: 'success' | 'error' | 'info'; text: string } | null>(
+    null,
+  );
+
+  const parameters = useCallback(
+    (extra?: Record<string, string>) => {
+      const search = new URLSearchParams({ filter, ...extra });
+      if (query.trim()) search.set('q', query.trim());
+      return search;
+    },
+    [filter, query],
+  );
+
+  const load = useCallback(async () => {
+    const result = await api<{
+      items: AudienceUser[];
+      nextCursor: string | null;
+      total: number;
+      counters: AudienceCounters;
+    }>(`/admin/users?${parameters({ limit: String(AUDIENCE_PAGE_SIZE) })}`);
+    setItems(result.items);
+    setNextCursor(result.nextCursor);
+    setTotal(result.total);
+    setCounters(result.counters);
+  }, [parameters]);
+
+  const loadMore = async () => {
+    if (!nextCursor) return;
+    setBusy(true);
+    try {
+      const result = await api<{ items: AudienceUser[]; nextCursor: string | null }>(
+        `/admin/users?${parameters({ limit: String(AUDIENCE_PAGE_SIZE), cursor: nextCursor })}`,
+      );
+      setItems((previous) => [...previous, ...result.items]);
+      setNextCursor(result.nextCursor);
+    } catch (caught) {
+      setNotice({
+        kind: 'error',
+        text: caught instanceof Error ? caught.message : 'Не удалось загрузить следующую страницу',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void load().catch((caught: unknown) => {
+        setNotice({
+          kind: 'error',
+          text: caught instanceof Error ? caught.message : 'Не удалось загрузить пользователей',
+        });
+      });
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [load]);
+
+  const exportUsers = async () => {
+    setBusy(true);
+    setNotice(null);
+    try {
+      await apiDownloadFile(`/admin/users/export?${parameters()}`, 'users.xlsx');
+    } catch (caught) {
+      setNotice({
+        kind: 'error',
+        text: caught instanceof Error ? caught.message : 'Не удалось выгрузить список',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const pushToCrm = async () => {
+    setBusy(true);
+    setNotice(null);
+    try {
+      const result = await api<{ queued: number }>('/admin/users/crm-sync', {
+        method: 'POST',
+        body: JSON.stringify({ filter: 'crm_pending' }),
+      });
+      setNotice({
+        kind: result.queued > 0 ? 'success' : 'info',
+        text:
+          result.queued > 0
+            ? `Поставлено в очередь на выгрузку в CRM: ${result.queued}. Карточки появятся в CRM в течение минуты.`
+            : 'Все пользователи уже выгружены в CRM.',
+      });
+      await load();
+    } catch (caught) {
+      setNotice({
+        kind: 'error',
+        text: caught instanceof Error ? caught.message : 'Не удалось запустить выгрузку в CRM',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      {notice ? (
+        <div className={`notice ${notice.kind}`} aria-live="polite">
+          {notice.text}
+        </div>
+      ) : null}
+      <Card className="admin-table-card">
+        <div className="admin-toolbar">
+          <input
+            className="admin-search"
+            placeholder="ФИО, username, телефон или Telegram ID"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+          <Button type="button" disabled={busy} onClick={() => void exportUsers()}>
+            Выгрузить Excel
+          </Button>
+          <Button type="button" disabled={busy} onClick={() => void pushToCrm()}>
+            Отправить в CRM
+          </Button>
+        </div>
+        <div className="admin-filter-row" role="group" aria-label="Отбор пользователей">
+          {AUDIENCE_FILTERS.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              className={filter === item.key ? 'chip active' : 'chip'}
+              onClick={() => setFilter(item.key)}
+            >
+              {item.label}
+              {counters ? <span> · {counters[item.counter]}</span> : null}
+            </button>
+          ))}
+        </div>
+        <p className="admin-hint">
+          Найдено: {total}
+          {counters && counters.botBlocked > 0
+            ? `. Заблокировали бота: ${counters.botBlocked} — им сообщение не доставить.`
+            : ''}
+        </p>
+        <Table
+          headings={[
+            'Человек',
+            'Telegram',
+            'Контакты',
+            'Источник',
+            'Первый контакт',
+            'Мероприятий',
+            'Отправок',
+            'Объём',
+            'CRM',
+          ]}
+        >
+          {items.map((item) => {
+            const crm = crmState(item);
+            return (
+              <tr key={item.id}>
+                <td>
+                  {item.fullName ?? item.telegramName ?? 'Без имени'}
+                  {item.fullName ? null : <small>профиль не заполнен</small>}
+                  {item.organization ? <small>{item.organization}</small> : null}
+                </td>
+                <td>
+                  {item.telegramUsername ? `@${item.telegramUsername}` : '—'}
+                  <small>{item.telegramUserId}</small>
+                </td>
+                <td>
+                  {item.phone ?? '—'}
+                  {item.botBlockedAt ? <small>заблокировал бота</small> : null}
+                </td>
+                <td>{AUDIENCE_SOURCES[item.source]}</td>
+                <td>
+                  {item.botStartedAt ? formatNovosibirskDate(item.botStartedAt) : '—'}
+                  <small>активность: {formatNovosibirskDate(item.lastSeenAt)}</small>
+                </td>
+                <td>{item.eventCount}</td>
+                <td>{item.submissionCount}</td>
+                <td>{formatBytes(item.totalBytes)}</td>
+                <td>
+                  <span className={crm.className}>{crm.label}</span>
+                  {item.crmSyncError ? <small>{item.crmSyncError}</small> : null}
+                </td>
+              </tr>
+            );
+          })}
+        </Table>
+        {nextCursor ? (
+          <div className="admin-toolbar">
+            <Button type="button" disabled={busy} onClick={() => void loadMore()}>
+              Показать ещё
+            </Button>
+            <span className="admin-hint">
+              Показано {items.length} из {total}
+            </span>
+          </div>
+        ) : null}
+      </Card>
+    </>
+  );
 }
 
 interface ParticipantRemovalResult {

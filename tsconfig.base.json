@@ -22,6 +22,7 @@
       "@cpi/shared": ["packages/shared/src/index.ts"],
       "@cpi/config": ["packages/config/src/index.ts"],
       "@cpi/db": ["packages/db/src/index.ts"],
+      "@cpi/spreadsheet": ["packages/spreadsheet/src/index.ts"],
       "@cpi/ui": ["packages/ui/src/index.tsx"]
     }
   }

@@ -11,7 +11,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { and, eq, isNull } from 'drizzle-orm';
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { artifacts, events, outboxEvents, submissions, uploadParts } from '@cpi/db';
+import { artifacts, events, outboxEvents, submissions, uploadParts, type Database } from '@cpi/db';
 import {
   AppError,
   canAccessArtifact,
@@ -55,6 +55,61 @@ function inferKind(mimeType: string, extension: string): ArtifactKind {
     return 'document';
   }
   return 'file';
+}
+
+type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
+
+/**
+ * Пересчитывает статус отправки по её живым файлам. Нужен там, где файл исчезает
+ * не через проверку: без пересчёта отправка зависает в `processing`, потому что
+ * промежуточный статус ставит инициализация загрузки, а снимает только воркер.
+ */
+async function recomputeSubmissionState(
+  transaction: Transaction,
+  submissionId: string,
+): Promise<void> {
+  const [submission] = await transaction
+    .select({ status: submissions.status })
+    .from(submissions)
+    .where(and(eq(submissions.id, submissionId), isNull(submissions.deletedAt)))
+    .limit(1);
+  if (!submission || submission.status !== 'processing') return;
+
+  const remaining = await transaction
+    .select({ status: artifacts.status })
+    .from(artifacts)
+    .where(and(eq(artifacts.submissionId, submissionId), isNull(artifacts.deletedAt)));
+
+  if (remaining.length === 0) {
+    await transaction
+      .update(submissions)
+      .set({ status: 'draft', submittedAt: null, updatedAt: new Date() })
+      .where(eq(submissions.id, submissionId));
+    return;
+  }
+  if (remaining.some((file) => file.status !== 'ready')) return;
+
+  await transaction
+    .update(submissions)
+    .set({ status: 'ready', submittedAt: new Date(), updatedAt: new Date() })
+    .where(eq(submissions.id, submissionId));
+  await transaction
+    .insert(outboxEvents)
+    .values([
+      {
+        type: 'submission.ready',
+        aggregateType: 'submission',
+        aggregateId: submissionId,
+        payload: { submissionId },
+      },
+      {
+        type: 'crm.submission.sync',
+        aggregateType: 'submission',
+        aggregateId: submissionId,
+        payload: { submissionId },
+      },
+    ])
+    .onConflictDoNothing();
 }
 
 async function enqueueVerification(
@@ -354,25 +409,45 @@ export const uploadRoutes: FastifyPluginAsync = async (app) => {
             409,
           );
         }
-        const result = await app.s3Internal.send(
-          new CompleteMultipartUploadCommand({
-            Bucket: artifact.bucket,
-            Key: artifact.objectKey,
-            UploadId: artifact.uploadId,
-            MultipartUpload: {
-              Parts: normalizedParts.map((part) => ({
-                PartNumber: part.partNumber,
-                ETag: part.etag,
-              })),
-            },
-          }),
-        );
-        etag = result.ETag ?? null;
+        try {
+          const result = await app.s3Internal.send(
+            new CompleteMultipartUploadCommand({
+              Bucket: artifact.bucket,
+              Key: artifact.objectKey,
+              UploadId: artifact.uploadId,
+              MultipartUpload: {
+                Parts: normalizedParts.map((part) => ({
+                  PartNumber: part.partNumber,
+                  ETag: part.etag,
+                })),
+              },
+            }),
+          );
+          etag = result.ETag ?? null;
+        } catch (error) {
+          // Неверные ETag или недосланная часть — ошибка клиента, а не сервера:
+          // без этой ветки обычная неудачная загрузка отвечала 500.
+          app.log.warn({ error, artifactId: artifact.id }, 'Multipart completion rejected by S3');
+          throw new AppError(
+            'MULTIPART_COMPLETE_FAILED',
+            'Хранилище не приняло сборку файла. Повторите загрузку.',
+            409,
+          );
+        }
       } else {
-        const head = await app.s3Internal.send(
-          new HeadObjectCommand({ Bucket: artifact.bucket, Key: artifact.objectKey }),
-        );
-        etag = head.ETag ?? null;
+        try {
+          const head = await app.s3Internal.send(
+            new HeadObjectCommand({ Bucket: artifact.bucket, Key: artifact.objectKey }),
+          );
+          etag = head.ETag ?? null;
+        } catch (error) {
+          app.log.warn({ error, artifactId: artifact.id }, 'Uploaded object is missing in S3');
+          throw new AppError(
+            'UPLOAD_NOT_FOUND_IN_STORAGE',
+            'Файл не найден в хранилище: загрузка не завершилась. Повторите отправку.',
+            409,
+          );
+        }
       }
 
       const updated = await app.db.transaction(async (transaction) => {
@@ -432,14 +507,21 @@ export const uploadRoutes: FastifyPluginAsync = async (app) => {
       } catch (error) {
         app.log.warn({ error, artifactId }, 'S3 abort failed; cleanup worker will retry');
       }
-      await app.db
-        .update(artifacts)
-        .set({
-          status: 'deleted',
-          statusReason: 'Загрузка отменена пользователем',
-          deletedAt: new Date(),
-        })
-        .where(eq(artifacts.id, artifact.id));
+      await app.db.transaction(async (transaction) => {
+        await transaction
+          .update(artifacts)
+          .set({
+            status: 'deleted',
+            statusReason: 'Загрузка отменена пользователем',
+            deletedAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(artifacts.id, artifact.id));
+        // Инициализация загрузки перевела отправку в `processing`. Если отменённый
+        // файл был последним ожидаемым, статус нужно пересчитать: иначе отправка
+        // остаётся «на проверке» навсегда.
+        await recomputeSubmissionState(transaction, artifact.submissionId);
+      });
       return reply.code(204).send();
     },
   );

@@ -6,9 +6,10 @@ import Redis from 'ioredis';
 import pino from 'pino';
 import { parseEnvironment, workerEnvironmentSchema } from '@cpi/config';
 import { createDatabase } from '@cpi/db';
+import { campaignReplyActions } from '@cpi/shared';
 import type { WorkerContext } from './context';
 import { buildExport } from './exporter';
-import { syncSubmissionToCrm } from './crm-sync';
+import { reportCampaignReply, syncSubmissionToCrm, syncUserToCrm } from './crm-sync';
 import { runMaintenance } from './maintenance';
 import { dispatchOutbox } from './outbox';
 import { verifyArtifact } from './verifier';
@@ -75,6 +76,19 @@ const exportWorker = new Worker(
 const crmWorker = new Worker(
   'crm-sync',
   async (job) => {
+    if (job.name === 'sync-user-to-crm') {
+      const userId = String((job.data as { userId?: string }).userId ?? '');
+      if (!userId) throw new Error('userId is required');
+      await syncUserToCrm(context, userId);
+      return;
+    }
+    if (job.name === 'report-campaign-reply') {
+      const data = job.data as { recipientId?: string; action?: string };
+      const action = campaignReplyActions.find((candidate) => candidate === data.action);
+      if (!data.recipientId || !action) throw new Error('recipientId and action are required');
+      await reportCampaignReply(context, { recipientId: data.recipientId, action });
+      return;
+    }
     const submissionId = String((job.data as { submissionId?: string }).submissionId ?? '');
     if (!submissionId) throw new Error('submissionId is required');
     await syncSubmissionToCrm(context, submissionId);

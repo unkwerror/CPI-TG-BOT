@@ -43,6 +43,7 @@ export interface EventItem {
   allowedMimeTypes: string[];
   blockedExtensions: string[];
   directAccessEnabled: boolean;
+  acceptsRequests: boolean;
   acceptsUploads: boolean;
 }
 

@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { and, asc, desc, eq, gt, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, inArray, isNull, lte, ne, or, sql } from 'drizzle-orm';
 import { artifacts, eventParticipants, events, outboxEvents, submissions } from '@cpi/db';
 import {
   AppError,
@@ -34,6 +34,13 @@ export const eventRoutes: FastifyPluginAsync = async (app) => {
       if (query.dateFrom) conditions.push(gte(events.startsAt, new Date(query.dateFrom)));
       if (query.dateTo) conditions.push(lte(events.startsAt, new Date(query.dateTo)));
       if (query.cursor) conditions.push(gt(events.id, query.cursor));
+      // Статус мероприятия ведут вручную и он отстаёт от календаря, поэтому
+      // прошедшим считается и завершённое, и то, чья дата окончания уже прошла.
+      // Явный выбор статуса «Завершено» — это и есть просьба показать прошедшие.
+      if (!query.includePast && query.status !== 'finished') {
+        conditions.push(ne(events.status, 'finished'));
+        conditions.push(gte(events.endsAt, new Date()));
+      }
 
       const rows = await app.db
         .select()

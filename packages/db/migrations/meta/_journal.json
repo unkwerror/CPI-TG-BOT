@@ -22,6 +22,20 @@
       "when": 1785834300000,
       "tag": "0002_crm_integration",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1786443000000,
+      "tag": "0003_bot_audience",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1786464000000,
+      "tag": "0004_event_requests",
+      "breakpoints": true
     }
   ]
 }

@@ -138,6 +138,24 @@ const rootRelationships =
 const styles =
   '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Arial"/></font><font><b/><sz val="11"/><name val="Arial"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
 
+function appendWorkbookParts(
+  archive: archiver.Archiver,
+  sheets: readonly SpreadsheetSheet[],
+): void {
+  archive.append(contentTypes(sheets.length), { name: '[Content_Types].xml' });
+  archive.append(rootRelationships, { name: '_rels/.rels' });
+  archive.append(workbook(sheets.map((sheet) => sheet.name)), { name: 'xl/workbook.xml' });
+  archive.append(workbookRelationships(sheets.length), {
+    name: 'xl/_rels/workbook.xml.rels',
+  });
+  archive.append(styles, { name: 'xl/styles.xml' });
+  for (const [index, sheet] of sheets.entries()) {
+    archive.append(Readable.from(worksheetXml(sheet.columns, sheet.rows)), {
+      name: `xl/worksheets/sheet${index + 1}.xml`,
+    });
+  }
+}
+
 export async function writeXlsxWorkbook(
   filePath: string,
   sheets: readonly SpreadsheetSheet[],
@@ -152,18 +170,26 @@ export async function writeXlsxWorkbook(
     archive.once('error', reject);
   });
   archive.pipe(output);
-  archive.append(contentTypes(sheets.length), { name: '[Content_Types].xml' });
-  archive.append(rootRelationships, { name: '_rels/.rels' });
-  archive.append(workbook(sheets.map((sheet) => sheet.name)), { name: 'xl/workbook.xml' });
-  archive.append(workbookRelationships(sheets.length), {
-    name: 'xl/_rels/workbook.xml.rels',
-  });
-  archive.append(styles, { name: 'xl/styles.xml' });
-  for (const [index, sheet] of sheets.entries()) {
-    archive.append(Readable.from(worksheetXml(sheet.columns, sheet.rows)), {
-      name: `xl/worksheets/sheet${index + 1}.xml`,
-    });
-  }
+  appendWorkbookParts(archive, sheets);
   await archive.finalize();
   await completed;
+}
+
+/**
+ * Тот же файл, но в памяти: выгрузка из админки отдаётся прямо в ответе, и
+ * временный файл на диске здесь только мешал бы.
+ */
+export async function buildXlsxBuffer(sheets: readonly SpreadsheetSheet[]): Promise<Buffer> {
+  if (sheets.length === 0) throw new Error('XLSX workbook needs at least one sheet');
+
+  const archive = new ZipArchive({ zlib: { level: 6 } });
+  const chunks: Buffer[] = [];
+  const collected = new Promise<Buffer>((resolve, reject) => {
+    archive.on('data', (chunk: Buffer) => chunks.push(chunk));
+    archive.once('end', () => resolve(Buffer.concat(chunks)));
+    archive.once('error', reject);
+  });
+  appendWorkbookParts(archive, sheets);
+  await archive.finalize();
+  return collected;
 }

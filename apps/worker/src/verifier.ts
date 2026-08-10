@@ -5,11 +5,12 @@ import {
   GetObjectCommand,
   HeadObjectCommand,
 } from '@aws-sdk/client-s3';
-import { and, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
 import { artifacts, exportJobs, outboxEvents, submissions } from '@cpi/db';
 import { evaluateFilePolicy } from '@cpi/shared';
 import type { WorkerContext } from './context';
 import { hashAndOptionallyScan } from './clamav';
+import { markSubmissionFailed } from './submission-state';
 
 function copySource(bucket: string, key: string): string {
   return `${bucket}/${key
@@ -45,18 +46,33 @@ export async function verifyArtifact(context: WorkerContext, artifactId: string)
     throw new Error(`Artifact ${artifactId} is in ${artifact.status} state`);
   }
 
+  // Заявка на проверку: перейти в `verifying` может только тот, кто увидел файл
+  // ещё не взятым. Условие `<> 'ready'` пропускало и сам `verifying`, поэтому два
+  // задания проверяли один файл одновременно и дважды копировали объект в S3.
+  // Брошенную заявку всё же нужно перехватывать, иначе упавший воркер оставил бы
+  // файл в `verifying` навсегда, поэтому старый захват старше lockDuration снимается.
+  const staleClaimBefore = new Date(Date.now() - 15 * 60 * 1_000);
   const [started] = await context.db
     .update(artifacts)
-    .set({ status: 'verifying', statusReason: null })
+    .set({ status: 'verifying', statusReason: null, updatedAt: new Date() })
     .where(
       and(
         eq(artifacts.id, artifact.id),
         isNull(artifacts.deletedAt),
-        ne(artifacts.status, 'ready'),
+        or(
+          inArray(artifacts.status, ['uploaded', 'failed']),
+          and(eq(artifacts.status, 'verifying'), lt(artifacts.updatedAt, staleClaimBefore)),
+        ),
       ),
     )
     .returning({ id: artifacts.id });
-  if (!started) return;
+  if (!started) {
+    context.logger.info(
+      { artifactId, status: artifact.status },
+      'Artifact verification is already claimed',
+    );
+    return;
+  }
 
   try {
     const head = await context.s3.send(
@@ -233,28 +249,4 @@ export async function verifyArtifact(context: WorkerContext, artifactId: string)
     await markSubmissionFailed(context, artifact.submissionId, artifact.id);
     throw error;
   }
-}
-
-async function markSubmissionFailed(
-  context: WorkerContext,
-  submissionId: string,
-  artifactId: string,
-): Promise<void> {
-  await context.db.transaction(async (transaction) => {
-    const [submission] = await transaction
-      .update(submissions)
-      .set({ status: 'failed' })
-      .where(and(eq(submissions.id, submissionId), isNull(submissions.deletedAt)))
-      .returning({ id: submissions.id });
-    if (!submission) return;
-    await transaction
-      .insert(outboxEvents)
-      .values({
-        type: 'artifact.failed',
-        aggregateType: 'artifact',
-        aggregateId: artifactId,
-        payload: { artifactId, submissionId },
-      })
-      .onConflictDoNothing();
-  });
 }

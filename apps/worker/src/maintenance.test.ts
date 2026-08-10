@@ -3,8 +3,28 @@ import { describe, expect, it, vi } from 'vitest';
 import type { WorkerContext } from './context';
 import { runMaintenance } from './maintenance';
 
+/** Drizzle-запрос можно и дождаться, и продолжить через `.returning()`. */
+function chainable(rows: unknown[]) {
+  return {
+    returning: vi.fn(async () => rows),
+    then: (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) =>
+      Promise.resolve(rows).then(resolve, reject),
+  };
+}
+
+function updateStub(sink: Array<Record<string, unknown>>, rows: unknown[]) {
+  return vi.fn(() => ({
+    set: vi.fn((values: Record<string, unknown>) => {
+      sink.push(values);
+      return { where: vi.fn(() => chainable(rows)) };
+    }),
+  }));
+}
+
 function maintenanceContext(selections: unknown[][], send: (command: unknown) => Promise<unknown>) {
   const updates: Array<Record<string, unknown>> = [];
+  const submissionUpdates: Array<Record<string, unknown>> = [];
+  const outboxEvents: Array<Record<string, unknown>> = [];
   const db = {
     select: vi.fn(() => ({
       from: vi.fn(() => ({
@@ -13,12 +33,18 @@ function maintenanceContext(selections: unknown[][], send: (command: unknown) =>
         })),
       })),
     })),
-    update: vi.fn(() => ({
-      set: vi.fn((values: Record<string, unknown>) => {
-        updates.push(values);
-        return { where: vi.fn(async () => []) };
+    update: updateStub(updates, [{ id: 'artifact-id' }]),
+    transaction: vi.fn(async (callback: (transaction: unknown) => Promise<unknown>) =>
+      callback({
+        update: updateStub(submissionUpdates, [{ id: 'submission-id' }]),
+        insert: vi.fn(() => ({
+          values: vi.fn((values: Record<string, unknown>) => {
+            outboxEvents.push(values);
+            return { onConflictDoNothing: vi.fn(async () => []) };
+          }),
+        })),
       }),
-    })),
+    ),
   };
   const context = {
     config: {
@@ -31,7 +57,7 @@ function maintenanceContext(selections: unknown[][], send: (command: unknown) =>
     s3: { send: vi.fn(send) },
     logger: { warn: vi.fn() },
   } as unknown as WorkerContext;
-  return { context, updates };
+  return { context, updates, submissionUpdates, outboxEvents };
 }
 
 describe('storage maintenance', () => {
@@ -82,6 +108,7 @@ describe('storage maintenance', () => {
   it('continues cleanup when a completed multipart upload no longer exists', async () => {
     const artifact = {
       id: 'artifact-id',
+      submissionId: 'submission-id',
       bucket: 'quarantine',
       objectKey: 'event/submission/artifact',
       uploadId: 'completed-upload',
@@ -98,6 +125,31 @@ describe('storage maintenance', () => {
       abandonedUploads: 1,
       deletedObjects: 0,
       expiredExports: 0,
+    });
+  });
+
+  it('releases the submission of an abandoned upload instead of leaving it in processing', async () => {
+    const artifact = {
+      id: 'artifact-id',
+      submissionId: 'submission-id',
+      bucket: 'quarantine',
+      objectKey: 'event/submission/artifact',
+      uploadId: null,
+    };
+    const { context, submissionUpdates, outboxEvents } = maintenanceContext(
+      [[artifact], [], []],
+      async (command) => {
+        if (command instanceof DeleteObjectCommand) return {};
+        throw new Error('Unexpected S3 command');
+      },
+    );
+
+    await expect(runMaintenance(context)).resolves.toMatchObject({ abandonedUploads: 1 });
+    expect(submissionUpdates[0]).toMatchObject({ status: 'failed' });
+    expect(outboxEvents[0]).toMatchObject({
+      type: 'artifact.failed',
+      aggregateId: 'artifact-id',
+      payload: { artifactId: 'artifact-id', submissionId: 'submission-id' },
     });
   });
 });

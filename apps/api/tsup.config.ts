@@ -9,5 +9,5 @@ export default defineConfig({
   sourcemap: true,
   clean: true,
   external: ['pg'],
-  noExternal: ['@cpi/config', '@cpi/db', '@cpi/shared'],
+  noExternal: ['@cpi/config', '@cpi/db', '@cpi/shared', '@cpi/spreadsheet'],
 });

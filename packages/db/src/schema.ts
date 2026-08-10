@@ -19,15 +19,18 @@ import {
   artifactKinds,
   artifactStatuses,
   eventFormats,
+  eventRequestStatuses,
   eventStatuses,
   exportKinds,
   exportStatuses,
   roleNames,
   submissionStatuses,
+  userSources,
   userStatuses,
 } from '@cpi/shared';
 
 export const userStatusEnum = pgEnum('user_status', userStatuses);
+export const userSourceEnum = pgEnum('user_source', userSources);
 export const roleNameEnum = pgEnum('role_name', roleNames);
 export const eventStatusEnum = pgEnum('event_status', eventStatuses);
 export const eventFormatEnum = pgEnum('event_format', eventFormats);
@@ -36,6 +39,7 @@ export const artifactStatusEnum = pgEnum('artifact_status', artifactStatuses);
 export const artifactKindEnum = pgEnum('artifact_kind', artifactKinds);
 export const exportStatusEnum = pgEnum('export_status', exportStatuses);
 export const exportKindEnum = pgEnum('export_kind', exportKinds);
+export const eventRequestStatusEnum = pgEnum('event_request_status', eventRequestStatuses);
 
 export const users = pgTable(
   'users',
@@ -51,9 +55,16 @@ export const users = pgTable(
     position: text('position'),
     phone: text('phone'),
     crmPersonId: uuid('crm_person_id'),
+    crmSyncedAt: timestamp('crm_synced_at', { withTimezone: true }),
+    crmSyncError: text('crm_sync_error'),
     avatarUrl: text('avatar_url'),
     consentAt: timestamp('consent_at', { withTimezone: true }),
     status: userStatusEnum('status').notNull().default('active'),
+    source: userSourceEnum('source').notNull().default('miniapp'),
+    /** Когда человек впервые написал боту. Только по таким адресатам возможна рассылка. */
+    botStartedAt: timestamp('bot_started_at', { withTimezone: true }),
+    /** Telegram сообщил, что бот заблокирован: адресат недостижим до нового /start. */
+    botBlockedAt: timestamp('bot_blocked_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
@@ -61,6 +72,8 @@ export const users = pgTable(
   (table) => [
     index('users_username_idx').on(table.telegramUsername),
     index('users_last_seen_idx').on(table.lastSeenAt),
+    index('users_created_idx').on(table.createdAt, table.id),
+    index('users_bot_started_idx').on(table.botStartedAt),
     uniqueIndex('users_crm_person_uidx')
       .on(table.crmPersonId)
       .where(sql`${table.crmPersonId} is not null`),
@@ -129,6 +142,8 @@ export const events = pgTable(
       .notNull()
       .default(sql`ARRAY[]::text[]`),
     directAccessEnabled: boolean('direct_access_enabled').notNull().default(true),
+    /** Мероприятие показывается в боте кнопкой «Выбрать событие» только с этим флагом. */
+    acceptsRequests: boolean('accepts_requests').notNull().default(false),
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
     updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -350,6 +365,45 @@ export const outboxEvents = pgTable(
   (table) => [
     uniqueIndex('outbox_type_aggregate_uq').on(table.type, table.aggregateType, table.aggregateId),
     index('outbox_pending_idx').on(table.processedAt, table.availableAt),
+  ],
+);
+
+/**
+ * Запрос, оставленный словами в боте: человек выбирает мероприятие и описывает,
+ * с чем нужна помощь. Разбирает его команда вручную, поэтому у запроса есть
+ * только статус и ответственный, без автоматики.
+ */
+export const eventRequests = pgTable(
+  'event_requests',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    eventId: uuid('event_id')
+      .notNull()
+      .references(() => events.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    text: text('text').notNull(),
+    /** Ссылки на файлы Telegram: отвечают всё равно в чате, где вложение уже есть. */
+    attachments: jsonb('attachments')
+      .$type<Array<{ fileId: string; kind: string; fileName?: string }>>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    status: eventRequestStatusEnum('status').notNull().default('new'),
+    assignedTo: uuid('assigned_to').references(() => users.id, { onDelete: 'set null' }),
+    closedAt: timestamp('closed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('event_requests_created_idx').on(table.createdAt, table.id),
+    index('event_requests_status_idx').on(table.status, table.createdAt),
+    index('event_requests_event_idx').on(table.eventId, table.createdAt),
+    // Второе обращение по тому же мероприятию дописывается в открытый запрос,
+    // иначе у команды копятся дубли об одном и том же.
+    uniqueIndex('event_requests_open_uidx')
+      .on(table.eventId, table.userId)
+      .where(sql`${table.status} <> 'closed'`),
   ],
 );
 
