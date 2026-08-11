@@ -29,6 +29,7 @@ describe.skipIf(!databaseUrl)('collecting requests left in the bot', () => {
     title: `Запросы ${suffix}`,
     slug: `requests-${suffix}`,
     shortCode: `REQ${suffix}`,
+    description: `Описание ${suffix} — им бот и приглашает написать запрос`,
     organizer: 'Стартап-студия НГУ',
     startsAt: overrides.startsAt ?? new Date(Date.now() - hour),
     endsAt: overrides.endsAt,
@@ -89,6 +90,14 @@ describe.skipIf(!databaseUrl)('collecting requests left in the bot', () => {
     expect(await findRequestEvent(database.db, openEventId)).not.toBeNull();
     expect(await findRequestEvent(database.db, closedEventId)).toBeNull();
     expect(await findRequestEvent(database.db, pastEventId)).toBeNull();
+  });
+
+  /** Приглашение написать запрос бот берёт из описания, поэтому его нужно читать из базы. */
+  it('loads the description the bot greets with', async () => {
+    const event = await findRequestEvent(database.db, openEventId);
+    expect(event?.description).toBe('Описание A — им бот и приглашает написать запрос');
+    const [offered] = await listRequestEvents(database.db);
+    expect(offered?.description).toBe('Описание A — им бот и приглашает написать запрос');
   });
 
   it('stores the request and asks the team about it', async () => {

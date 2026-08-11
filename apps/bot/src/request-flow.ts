@@ -88,7 +88,29 @@ export const REQUEST_MESSAGES = {
   idle: 'Чтобы оставить запрос, выберите событие. Материалы мероприятий — в приложении.',
 } as const;
 
-export function askTextMessage(input: { title: string; organizer: string }): string {
+/** Telegram отклоняет сообщение длиннее 4096 символов, а описание допускает 10 000. */
+const MESSAGE_LIMIT = 4_000;
+
+function fitMessage(text: string): string {
+  if (text.length <= MESSAGE_LIMIT) return text;
+  const cut = text.slice(0, MESSAGE_LIMIT);
+  const boundary = cut.lastIndexOf(' ');
+  const trimmed = boundary > MESSAGE_LIMIT - 200 ? cut.slice(0, boundary) : cut;
+  return `${trimmed.trimEnd()}…`;
+}
+
+/**
+ * Приглашение написать запрос — это описание события из админки: там же его видит
+ * человек в приложении, поэтому формулировка правится в одном месте и не расходится.
+ * Шаблон остаётся запасным вариантом для событий без описания.
+ */
+export function askTextMessage(input: {
+  title: string;
+  organizer: string;
+  description?: string | null;
+}): string {
+  const description = input.description?.trim();
+  if (description) return fitMessage(description);
   return [
     `Хотите подать заявку в «${input.title}» и нужна помощь с заполнением?`,
     '',

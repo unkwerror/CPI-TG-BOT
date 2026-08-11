@@ -91,12 +91,39 @@ describe('parsePhone', () => {
 });
 
 describe('askTextMessage', () => {
-  it('names the event and the team that will answer', () => {
+  /** Организатор правит формулировку в админке, и приложение с ботом должны говорить одно и то же. */
+  it('говорит описанием события из админки', () => {
+    const description = 'Хотите подать заявку в ТОП-1000?\n\nНапишите, с чем нужна помощь.';
     const message = askTextMessage({
       title: 'ТОП-1000 университетских проектов',
       organizer: 'Стартап-студия НГУ',
+      description,
     });
-    expect(message).toContain('«ТОП-1000 университетских проектов»');
-    expect(message).toContain('Стартап-студия НГУ посмотрит запрос');
+    expect(message).toBe(description);
+  });
+
+  it('подставляет шаблон, когда описания нет', () => {
+    const event = { title: 'ТОП-1000 университетских проектов', organizer: 'Стартап-студия НГУ' };
+    const withoutDescription = [
+      askTextMessage(event),
+      askTextMessage({ ...event, description: null }),
+      askTextMessage({ ...event, description: '   ' }),
+    ];
+    for (const message of withoutDescription) {
+      expect(message).toContain('«ТОП-1000 университетских проектов»');
+      expect(message).toContain('Стартап-студия НГУ посмотрит запрос');
+    }
+  });
+
+  /** Описание допускает 10 000 символов, а Telegram отклоняет сообщение длиннее 4096. */
+  it('обрезает описание до предела Telegram по границе слова', () => {
+    const words = Array.from({ length: 2_000 }, (_, index) => `слово${index}`);
+    const message = askTextMessage({
+      title: 'Событие',
+      organizer: 'Организатор',
+      description: words.join(' '),
+    });
+    expect(message.length).toBeLessThanOrEqual(4_096);
+    expect(message).toMatch(/ слово\d+…$/u);
   });
 });

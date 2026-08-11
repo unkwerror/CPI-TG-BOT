@@ -12,6 +12,7 @@ export interface RequestEvent {
   id: string;
   title: string;
   organizer: string;
+  description: string | null;
 }
 
 function draftKey(prefix: string, telegramUserId: number): string {
@@ -56,7 +57,12 @@ export async function clearDraft(
  */
 export async function listRequestEvents(database: Database): Promise<RequestEvent[]> {
   return database
-    .select({ id: events.id, title: events.title, organizer: events.organizer })
+    .select({
+      id: events.id,
+      title: events.title,
+      organizer: events.organizer,
+      description: events.description,
+    })
     .from(events)
     .where(
       and(
@@ -75,7 +81,12 @@ export async function findRequestEvent(
   eventId: string,
 ): Promise<RequestEvent | null> {
   const [row] = await database
-    .select({ id: events.id, title: events.title, organizer: events.organizer })
+    .select({
+      id: events.id,
+      title: events.title,
+      organizer: events.organizer,
+      description: events.description,
+    })
     .from(events)
     .where(
       and(
