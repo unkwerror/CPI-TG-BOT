@@ -8,10 +8,12 @@ test-results/
 .env
 .env.*
 !.env.example
+.motion-service-account.json
+.motion-personal-api-key
+.motion-job.json
 *.log
 .DS_Store
 tmp/
 exports/
 backups/
-apps/web/public/cats/
 previews/

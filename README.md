@@ -1,9 +1,11 @@
-# CPI Artifacts — Telegram Mini App для материалов мероприятий
+# Кошелёк Стартап-студии НГУ — Telegram Mini App
 
-Рабочий MVP собирает текст, ссылки и несколько файлов участников, проверяет Telegram
-авторизацию на сервере, загружает файлы напрямую в приватный S3/MinIO и предоставляет
-администраторам поиск, статусы, аудит, CSV/XLSX и полный ZIP. Готовые отправки
-автоматически связываются с каноническим участником CRM.
+Приложение объединяет баланс и неизменяемую историю баллов, временные QR-переводы,
+мероприятия с версионируемыми формами артефактов, магазин и ленту. Telegram-авторизация,
+админка, экспорты и связь с CRM сохранены. Файлы в production хранятся в облачном Beget S3;
+локальный MinIO используется только для разработки. Продуктовые правила кошелька описаны в
+[docs/wallet.md](docs/wallet.md), а аудит переиспользуемых решений и принятые решения — в
+[docs/libraries.md](docs/libraries.md).
 
 ## Быстрый локальный запуск
 
@@ -85,22 +87,22 @@ openssl rand -hex 32
 
 Критические переменные:
 
-| Переменная                             | Назначение                                 |
-| -------------------------------------- | ------------------------------------------ |
-| `ARTIFACTS_DOMAIN`                     | домен web/API с TLS                        |
-| `ARTIFACTS_S3_DOMAIN`                  | домен приватного S3 API с TLS              |
-| `TELEGRAM_BOT_TOKEN`                   | токен BotFather                            |
-| `SUPERADMIN_TELEGRAM_IDS`              | allowlist первого/первых superadmin        |
-| `BOT_WEBHOOK_SECRET`                   | проверка webhook-запросов Telegram         |
-| `POSTGRES_PASSWORD`, `APP_DB_PASSWORD` | владелец схемы и ограниченный runtime user |
-| `REDIS_PASSWORD`                       | сессии, rate limit и очередь               |
-| `MINIO_ROOT_PASSWORD`                  | только инициализация MinIO                 |
-| `S3_ACCESS_KEY`, `S3_SECRET_KEY`       | ограниченный прикладной S3 user            |
-| `WEB_ORIGIN`, `WEB_APP_URL`            | единственный разрешённый origin            |
-| `S3_PUBLIC_ENDPOINT`                   | адрес, который открывает браузер           |
-| `FILE_VERIFICATION_MODE`               | `metadata-only` или `clamav`               |
-| `CRM_API_URL`                          | базовый URL API CRM                        |
-| `CRM_INTEGRATION_TOKEN`                | общий серверный секрет Locker и CRM        |
+| Переменная                             | Назначение                                  |
+| -------------------------------------- | ------------------------------------------- |
+| `ARTIFACTS_DOMAIN`                     | домен web/API с TLS                         |
+| `TELEGRAM_BOT_TOKEN`                   | токен BotFather                             |
+| `SUPERADMIN_TELEGRAM_IDS`              | allowlist первого/первых superadmin         |
+| `BOT_WEBHOOK_SECRET`                   | проверка webhook-запросов Telegram          |
+| `POSTGRES_PASSWORD`, `APP_DB_PASSWORD` | владелец схемы и ограниченный runtime user  |
+| `REDIS_PASSWORD`                       | сессии, rate limit и очередь                |
+| `S3_ENDPOINT`, `S3_UPSTREAM`           | API и хост reverse proxy облачного S3       |
+| `S3_BUCKET`, `S3_PREFIX`               | общий бакет с CRM и папка `locker/`         |
+| `S3_ACCESS_KEY`, `S3_SECRET_KEY`       | ключи облачного хранилища                   |
+| `S3_PUBLIC_BASE`                       | адрес браузера, обычно `/storage` на домене |
+| `WEB_ORIGIN`, `WEB_APP_URL`            | единственный разрешённый origin             |
+| `FILE_VERIFICATION_MODE`               | `metadata-only` или `clamav`                |
+| `CRM_API_URL`                          | базовый URL API CRM                         |
+| `CRM_INTEGRATION_TOKEN`                | общий серверный секрет Locker и CRM         |
 
 Полный список и безопасные пояснения находятся в [.env.example](.env.example).
 
@@ -112,7 +114,7 @@ set -a
 set +a
 ./scripts/install-caddy-fragment.sh \
   infra/server/Caddyfile.fragment \
-  /opt/CPI-CRM-MVP/infra/server/Caddyfile \
+  /opt/CPI-CRM-MVP/infra/server/conf.d \
   cpi-crm-production-caddy-1 \
   cpi-artifacts-caddy
 docker compose \
@@ -145,7 +147,10 @@ frame. Next.js выставляет CSP `frame-ancestors` только для Te
 3. владелец открывает Mini App из созданного бота;
 4. API после валидной Telegram-подписи назначает `participant` и `superadmin`;
 5. на вкладке «Профиль» появляется ссылка на `/admin`;
-6. superadmin назначает и блокирует других администраторов в соответствующей вкладке.
+6. администратор назначает и блокирует других администраторов в соответствующей вкладке.
+
+В продукте действует одна операционная роль `admin` со всеми правами. Существующее имя
+`superadmin` сохранено только как совместимый bootstrap-алиас для владельцев из environment.
 
 Seed не создаёт тестового администратора в production без явного
 `SEED_ADMIN_TELEGRAM_ID`.
@@ -156,13 +161,14 @@ Seed не создаёт тестового администратора в prod
 2. До порога `MULTIPART_THRESHOLD_BYTES` выдаётся один presigned PUT.
 3. Для больших файлов клиент режет файл на части по `MULTIPART_PART_SIZE_BYTES`,
    получает URL каждой части и хранит ETag.
-4. После `/complete` worker сверяет объект, потоково вычисляет SHA-256 и переносит
-   его из quarantine в private bucket.
+4. После `/complete` worker проверяет magic bytes и размер, потоково вычисляет SHA-256,
+   сканирует ClamAV и переносит объект из служебного дерева `locker/incoming/` в
+   человекочитаемую папку участника внутри того же общего Beget-бакета.
 5. Скачивание доступно владельцу или администратору только для `ready` и только по
    короткоживущей ссылке.
 
-При `metadata-only` обычные файлы проверяются по метаданным и checksum, а исполняемые
-типы остаются в карантине. Для ClamAV задайте:
+При `metadata-only` обычные файлы проверяются по размеру, magic bytes и checksum, а
+исполняемые типы остаются в карантине. В production используется fail-closed ClamAV:
 
 ```dotenv
 FILE_VERIFICATION_MODE=clamav
@@ -180,8 +186,8 @@ CLAMAV_PORT=3310
 в `users.crm_person_id`; это связь с участником, а не учётная запись и не право входа
 в CRM. Повторные попытки безопасны, а исходящие запросы ограничены по скорости.
 
-Бинарные файлы не копируются в CRM. Единственный экземпляр остаётся в приватном bucket
-Locker. Когда сотрудник CRM открывает файл, CRM по серверному токену обращается к
+Бинарные файлы не копируются в CRM. Единственный экземпляр остаётся в приватном дереве
+`locker/` общего Beget-бакета. Когда сотрудник CRM открывает файл, CRM по серверному токену обращается к
 `/api/v1/integrations/crm/artifacts/{artifactId}/download`, и Locker выдаёт новую
 короткоживущую подписанную ссылку. Для обеих систем задайте один и тот же случайный
 `CRM_INTEGRATION_TOKEN`/`LOCKER_INTEGRATION_TOKEN` длиной не менее 32 символов.
@@ -228,9 +234,10 @@ docker compose --env-file infra/server/.env -f infra/server/docker-compose.yml \
   exec -T postgres pg_dump -U artifacts_owner -Fc artifacts > artifacts.dump
 ```
 
-MinIO следует зеркалировать во второе S3/объектное хранилище и включить versioning/
-lifecycle согласно политике организации. Проверяйте восстановление регулярно; один
-backup без теста восстановления не считается рабочим.
+Файлы артефактов лежат в общем облачном бакете (префикс `locker/`). Их нужно
+включать в политику бэкапа провайдера или зеркалировать во второе хранилище.
+Проверяйте восстановление регулярно; один backup без теста восстановления не
+считается рабочим.
 
 ## Тестирование
 

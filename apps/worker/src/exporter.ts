@@ -9,10 +9,18 @@ import { Upload } from '@aws-sdk/lib-storage';
 import type archiver from 'archiver';
 import * as archiverModule from 'archiver';
 import { and, asc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
-import { artifacts, eventParticipants, events, exportJobs, submissions, users } from '@cpi/db';
-import { safeZipSegment } from '@cpi/shared';
-import { writeXlsxWorkbook, type SpreadsheetColumn } from '@cpi/spreadsheet';
+import {
+  artifacts,
+  eventParticipants,
+  events,
+  exportJobs,
+  submissions,
+  userMessengerIdentities,
+  users,
+} from '@cpi/db';
+import { exportObjectKey, safeZipSegment } from '@cpi/shared';
 import type { WorkerContext } from './context';
+import { writeXlsxWorkbook, type SpreadsheetColumn } from './xlsx';
 
 type ParticipantRow = Awaited<ReturnType<typeof loadParticipants>>[number];
 type ArtifactRow = Awaited<ReturnType<typeof loadArtifacts>>[number];
@@ -28,7 +36,8 @@ export function formatSubmissionArtifactText(submission: SubmissionRow): string 
     `ID отправки: ${submission.id}`,
     `ID пользователя: ${submission.userId}`,
     `Автор: ${submission.fullName ?? '—'}`,
-    `Telegram ID: ${submission.telegramUserId}`,
+    `Мессенджеры: ${submission.messengerIdentities || '—'}`,
+    `Telegram ID: ${submission.telegramUserId || '—'}`,
     `Название: ${submission.title ?? '—'}`,
     `Статус: ${submission.status}`,
     `Дата создания: ${submission.createdAt.toISOString()}`,
@@ -48,6 +57,7 @@ async function loadParticipants(context: WorkerContext, eventId: string) {
     fullName: string | null;
     username: string | null;
     telegramUserId: string;
+    messengerIdentities: string;
     organization: string | null;
     position: string | null;
     phone: string | null;
@@ -65,6 +75,12 @@ async function loadParticipants(context: WorkerContext, eventId: string) {
         fullName: users.fullName,
         username: users.telegramUsername,
         telegramUserId: users.telegramUserId,
+        messengerIdentities: sql<string>`coalesce((
+          select string_agg(identity.provider::text || ':' || identity.external_user_id, ' | '
+                            order by identity.provider, identity.external_user_id)
+            from ${userMessengerIdentities} identity
+           where identity.user_id = ${users.id}
+        ), '')`,
         organization: users.organization,
         position: users.position,
         phone: users.phone,
@@ -92,7 +108,7 @@ async function loadParticipants(context: WorkerContext, eventId: string) {
     output.push(
       ...rows.map((row) => ({
         ...row,
-        telegramUserId: row.telegramUserId.toString(),
+        telegramUserId: row.telegramUserId?.toString() ?? '',
         submissionCount: Number(row.submissionCount),
         artifactCount: Number(row.artifactCount),
         totalBytes: Number(row.totalBytes),
@@ -111,6 +127,7 @@ async function loadArtifacts(context: WorkerContext, eventId: string) {
     userId: string;
     fullName: string | null;
     telegramUserId: string;
+    messengerIdentities: string;
     title: string | null;
     text: string | null;
     link: string | null;
@@ -133,6 +150,12 @@ async function loadArtifacts(context: WorkerContext, eventId: string) {
         userId: artifacts.userId,
         fullName: users.fullName,
         telegramUserId: users.telegramUserId,
+        messengerIdentities: sql<string>`coalesce((
+          select string_agg(identity.provider::text || ':' || identity.external_user_id, ' | '
+                            order by identity.provider, identity.external_user_id)
+            from ${userMessengerIdentities} identity
+           where identity.user_id = ${users.id}
+        ), '')`,
         title: submissions.title,
         text: submissions.text,
         link: submissions.link,
@@ -161,7 +184,7 @@ async function loadArtifacts(context: WorkerContext, eventId: string) {
     output.push(
       ...rows.map((row) => ({
         ...row,
-        telegramUserId: row.telegramUserId.toString(),
+        telegramUserId: row.telegramUserId?.toString() ?? '',
         sizeBytes: Number(row.sizeBytes),
       })),
     );
@@ -177,6 +200,7 @@ async function loadSubmissions(context: WorkerContext, eventId: string) {
     userId: string;
     fullName: string | null;
     telegramUserId: string;
+    messengerIdentities: string;
     title: string | null;
     text: string | null;
     link: string | null;
@@ -191,6 +215,12 @@ async function loadSubmissions(context: WorkerContext, eventId: string) {
         userId: submissions.userId,
         fullName: users.fullName,
         telegramUserId: users.telegramUserId,
+        messengerIdentities: sql<string>`coalesce((
+          select string_agg(identity.provider::text || ':' || identity.external_user_id, ' | '
+                            order by identity.provider, identity.external_user_id)
+            from ${userMessengerIdentities} identity
+           where identity.user_id = ${users.id}
+        ), '')`,
         title: submissions.title,
         text: submissions.text,
         link: submissions.link,
@@ -211,7 +241,7 @@ async function loadSubmissions(context: WorkerContext, eventId: string) {
     output.push(
       ...rows.map((row) => ({
         ...row,
-        telegramUserId: row.telegramUserId.toString(),
+        telegramUserId: row.telegramUserId?.toString() ?? '',
       })),
     );
     if (rows.length < 500) break;
@@ -225,6 +255,7 @@ function participantColumns(): SpreadsheetColumn<ParticipantRow>[] {
     { header: 'ФИО', key: 'fullName', width: 30 },
     { header: 'Telegram username', key: 'username', width: 22 },
     { header: 'Telegram ID', key: 'telegramUserId', width: 18 },
+    { header: 'Аккаунты мессенджеров', key: 'messengerIdentities', width: 34 },
     { header: 'Организация', key: 'organization', width: 28 },
     { header: 'Должность', key: 'position', width: 24 },
     { header: 'Контакт', key: 'phone', width: 20 },
@@ -242,6 +273,7 @@ function artifactColumns(): SpreadsheetColumn<ArtifactRow>[] {
     { header: 'Отправка', key: 'submissionId', width: 38 },
     { header: 'Автор', key: 'fullName', width: 30 },
     { header: 'Telegram ID', key: 'telegramUserId', width: 18 },
+    { header: 'Аккаунты мессенджеров', key: 'messengerIdentities', width: 34 },
     { header: 'Название отправки', key: 'title', width: 30 },
     { header: 'Имя файла', key: 'originalName', width: 35 },
     { header: 'MIME-type', key: 'mimeType', width: 28 },
@@ -365,7 +397,7 @@ async function uploadFile(
   const upload = new Upload({
     client: context.s3,
     params: {
-      Bucket: context.config.S3_EXPORT_BUCKET,
+      Bucket: context.config.S3_BUCKET,
       Key: objectKey,
       Body: createReadStream(sourcePath),
       ContentLength: fileStat.size,
@@ -408,7 +440,7 @@ export async function buildZip(
   const upload = new Upload({
     client: context.s3,
     params: {
-      Bucket: context.config.S3_EXPORT_BUCKET,
+      Bucket: context.config.S3_BUCKET,
       Key: input.objectKey,
       Body: output,
       ContentType: 'application/zip',
@@ -483,7 +515,10 @@ export async function buildZip(
       }
       if (artifact.status === 'ready') {
         const object = await context.s3.send(
-          new GetObjectCommand({ Bucket: artifact.bucket, Key: artifact.objectKey }),
+          new GetObjectCommand({
+            Bucket: artifact.bucket,
+            Key: artifact.objectKey,
+          }),
         );
         if (object.Body && Symbol.asyncIterator in object.Body) {
           const readable = Readable.from(object.Body as AsyncIterable<Uint8Array>);
@@ -515,7 +550,7 @@ export async function buildZip(
   const generatedBytes = archive.pointer();
   const storedObject = await context.s3.send(
     new HeadObjectCommand({
-      Bucket: context.config.S3_EXPORT_BUCKET,
+      Bucket: context.config.S3_BUCKET,
       Key: input.objectKey,
     }),
   );
@@ -537,11 +572,15 @@ export async function buildExport(context: WorkerContext, exportJobId: string): 
     .limit(1);
   if (!jobContext || jobContext.job.status === 'ready') return;
 
-  const objectKey = `${jobContext.event.id}/${jobContext.job.id}.${jobContext.job.kind}`;
+  const objectKey = exportObjectKey(context.config.S3_PREFIX, {
+    eventId: jobContext.event.id,
+    exportJobId: jobContext.job.id,
+    kind: jobContext.job.kind,
+  });
   if (jobContext.job.status === 'expired') {
     await context.s3.send(
       new DeleteObjectCommand({
-        Bucket: context.config.S3_EXPORT_BUCKET,
+        Bucket: context.config.S3_BUCKET,
         Key: objectKey,
       }),
     );
@@ -550,7 +589,12 @@ export async function buildExport(context: WorkerContext, exportJobId: string): 
 
   const [started] = await context.db
     .update(exportJobs)
-    .set({ status: 'processing', progress: 1, startedAt: new Date(), errorMessage: null })
+    .set({
+      status: 'processing',
+      progress: 1,
+      startedAt: new Date(),
+      errorMessage: null,
+    })
     .where(
       and(
         eq(exportJobs.id, exportJobId),
@@ -617,7 +661,7 @@ export async function buildExport(context: WorkerContext, exportJobId: string): 
       .set({
         status: 'ready',
         progress: 100,
-        bucket: context.config.S3_EXPORT_BUCKET,
+        bucket: context.config.S3_BUCKET,
         objectKey,
         sizeBytes,
         completedAt: new Date(),
@@ -628,7 +672,7 @@ export async function buildExport(context: WorkerContext, exportJobId: string): 
     if (!completed) {
       await context.s3.send(
         new DeleteObjectCommand({
-          Bucket: context.config.S3_EXPORT_BUCKET,
+          Bucket: context.config.S3_BUCKET,
           Key: objectKey,
         }),
       );

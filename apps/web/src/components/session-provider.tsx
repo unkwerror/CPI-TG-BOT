@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 import { api, ApiClientError, authenticate } from '../lib/api';
+import { getMessengerAdapter } from '../lib/messenger-adapter';
 import type { CurrentUser } from '../lib/types';
 
 interface SessionContextValue {
@@ -34,9 +35,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const telegram = window.Telegram?.WebApp;
-    telegram?.ready();
-    telegram?.expand();
+    getMessengerAdapter()?.initialize();
     const markOnline = () => setOnline(true);
     const markOffline = () => setOnline(false);
     setOnline(navigator.onLine);

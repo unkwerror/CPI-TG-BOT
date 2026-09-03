@@ -1,19 +1,43 @@
-import { and, asc, eq, isNull, lte } from 'drizzle-orm';
+import { and, asc, eq, isNull, lte, sql } from 'drizzle-orm';
+import { DeleteObjectCommand } from '@aws-sdk/client-s3';
 import type { Queue } from 'bullmq';
 import { outboxEvents } from '@cpi/db';
+import { grantArtifactReward } from '../../api/src/wallet-service';
 import type { WorkerContext } from './context';
 
-/**
- * BullMQ молча игнорирует add с уже известным jobId, а выполненные задания
- * остаются в Redis. Поэтому переоткрытое событие с прежним ключом никогда не
- * выполнялось повторно: кнопка «Отправить в CRM» отмечала событие обработанным,
- * но задание не запускалось. availableAt меняется при каждом переоткрытии и
- * повторе, зато одинаков для двух диспетчеров, поднявших одну и ту же строку,
- * поэтому даёт новый ключ ровно на одно исполнение. Двоеточие в ключе BullMQ
- * запрещает — им разделяются собственные ключи Redis.
- */
-export function outboxJobId(row: { id: string; availableAt: Date }): string {
-  return `${row.id}-${row.availableAt.getTime()}`;
+export const notificationOutboxTypes = new Set([
+  'submission.ready',
+  'artifact.failed',
+  'wallet.transaction.posted',
+  'wallet.intent.created',
+  'store.order.paid',
+  'store.order.pickup_requested',
+  'store.order.ready_for_pickup',
+  'store.order.fulfilled',
+  'reward.artifact.granted',
+  'broadcast.event.published',
+  'broadcast.event.uploads_opened',
+  'broadcast.feed.published',
+  'broadcast.product.published',
+  'leader_id.telegram_chat_invite',
+]);
+
+export function artifactSourceCleanupTarget(payload: Record<string, unknown>): {
+  bucket: string;
+  objectKey: string;
+} {
+  const bucket = typeof payload.bucket === 'string' ? payload.bucket.trim() : '';
+  const objectKey = typeof payload.objectKey === 'string' ? payload.objectKey : '';
+  if (!bucket || !objectKey) throw new Error('Invalid artifact.source.cleanup payload');
+  return { bucket, objectKey };
+}
+
+export async function deleteArtifactSourceObject(
+  s3: WorkerContext['s3'],
+  payload: Record<string, unknown>,
+): Promise<void> {
+  const source = artifactSourceCleanupTarget(payload);
+  await s3.send(new DeleteObjectCommand({ Bucket: source.bucket, Key: source.objectKey }));
 }
 
 export async function dispatchOutbox(
@@ -39,78 +63,83 @@ export async function dispatchOutbox(
           'verify-artifact',
           { artifactId: row.aggregateId },
           {
-            jobId: outboxJobId(row),
+            jobId: row.aggregateId,
             attempts: 5,
             backoff: { type: 'exponential', delay: 2_000 },
             removeOnComplete: 500,
             removeOnFail: 1_000,
           },
         );
+      } else if (row.type === 'artifact.source.cleanup') {
+        await deleteArtifactSourceObject(context.s3, row.payload);
       } else if (row.type === 'export.requested') {
         await queues.exports.add(
           'build-export',
           { exportJobId: row.aggregateId },
           {
-            jobId: outboxJobId(row),
+            jobId: row.aggregateId,
             attempts: 3,
             backoff: { type: 'exponential', delay: 5_000 },
             removeOnComplete: 200,
             removeOnFail: 500,
           },
         );
-      } else if (
-        row.type === 'submission.ready' ||
-        row.type === 'artifact.failed' ||
-        row.type === 'event_request.created'
-      ) {
+      } else if (row.type === 'reward.artifact.evaluate') {
+        const submissionId =
+          typeof row.payload.submissionId === 'string' ? row.payload.submissionId : row.aggregateId;
+        const result = await grantArtifactReward(context.db, { submissionId });
+        // Ineligible/manual policies are terminal for this trigger. An administrator can change
+        // the policy and enqueue the same idempotent evaluation through reconciliation later.
+        context.logger.info({ submissionId, result: result.status }, 'Artifact reward evaluated');
+      } else if (notificationOutboxTypes.has(row.type)) {
         await queues.notifications.add(
           'send-notification',
           { type: row.type, ...row.payload },
           {
-            jobId: outboxJobId(row),
+            jobId: row.id,
             attempts: 5,
             backoff: { type: 'exponential', delay: 5_000 },
             removeOnComplete: 1_000,
             removeOnFail: 1_000,
           },
         );
-      } else if (row.type === 'crm.submission.sync') {
+      } else if (
+        row.type === 'crm.submission.sync' ||
+        row.type === 'crm.user.sync' ||
+        row.type === 'crm.event.sync' ||
+        row.type === 'crm.participation.sync'
+      ) {
+        const userSync = row.type === 'crm.user.sync';
+        const eventSync = row.type === 'crm.event.sync';
+        const participationSync = row.type === 'crm.participation.sync';
         await queues.crm.add(
-          'sync-submission-to-crm',
-          { submissionId: row.aggregateId },
+          userSync
+            ? 'sync-user-to-crm'
+            : eventSync
+              ? 'sync-event-to-crm'
+              : participationSync
+                ? 'sync-participation-to-crm'
+                : 'sync-submission-to-crm',
+          userSync
+            ? { userId: row.aggregateId }
+            : eventSync
+              ? { eventId: row.aggregateId }
+              : participationSync
+                ? {
+                    eventId: row.payload.eventId,
+                    userId: row.payload.userId,
+                  }
+                : { submissionId: row.aggregateId },
           {
-            jobId: outboxJobId(row),
+            jobId: row.id,
             attempts: 10,
             backoff: { type: 'exponential', delay: 5_000 },
             removeOnComplete: 1_000,
             removeOnFail: 2_000,
           },
         );
-      } else if (row.type === 'crm.user.sync') {
-        await queues.crm.add(
-          'sync-user-to-crm',
-          { userId: row.aggregateId },
-          {
-            jobId: outboxJobId(row),
-            attempts: 10,
-            backoff: { type: 'exponential', delay: 5_000 },
-            removeOnComplete: 1_000,
-            removeOnFail: 2_000,
-          },
-        );
-      } else if (row.type === 'crm.campaign.reply') {
-        await queues.crm.add('report-campaign-reply', row.payload, {
-          jobId: outboxJobId(row),
-          attempts: 10,
-          backoff: { type: 'exponential', delay: 5_000 },
-          removeOnComplete: 1_000,
-          removeOnFail: 2_000,
-        });
       } else {
-        // Неизвестный тип раньше помечался обработанным и терялся навсегда.
-        // Оставляем строку непрочитанной с причиной: её видно и можно доставить
-        // после исправления, а не искать пропажу по логам.
-        throw new Error(`Unknown outbox event type ${row.type}`);
+        throw new Error(`Unsupported outbox event type: ${row.type}`);
       }
       await context.db
         .update(outboxEvents)
@@ -119,21 +148,16 @@ export async function dispatchOutbox(
       processed += 1;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      // Backoff растёт до шести часов: постоянная ошибка не должна вечно
-      // повторяться каждые пять минут, но и терять событие нельзя.
-      const delaySeconds = Math.min(21_600, 2 ** Math.min(row.attempts, 15));
-      const attempts = row.attempts + 1;
+      const delaySeconds = Math.min(300, 2 ** Math.min(row.attempts, 8));
       await context.db
         .update(outboxEvents)
         .set({
-          attempts,
+          attempts: sql`${outboxEvents.attempts} + 1`,
           lastError: message.slice(0, 2_000),
           availableAt: new Date(Date.now() + delaySeconds * 1_000),
         })
         .where(eq(outboxEvents.id, row.id));
-      const details = { error, outboxId: row.id, type: row.type, attempts };
-      if (attempts >= 10) context.logger.error(details, 'Outbox event keeps failing');
-      else context.logger.warn(details, 'Outbox dispatch failed');
+      context.logger.warn({ error, outboxId: row.id }, 'Outbox dispatch failed');
     }
   }
   return processed;

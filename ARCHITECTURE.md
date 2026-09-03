@@ -1,4 +1,4 @@
-# Архитектура CPI Artifacts
+# Архитектура кошелька Стартап-студии НГУ
 
 ## Компоненты
 
@@ -6,16 +6,18 @@
 
 - `apps/web` — Next.js: Telegram Mini App и защищённая административная панель;
 - `apps/api` — Fastify REST API `/api/v1`, OpenAPI, авторизация и выдача presigned URL;
-- `apps/worker` — BullMQ worker: проверка файлов, SHA-256, экспорт и очистка;
+- `apps/worker` — BullMQ worker: проверка файлов, начисление наград, SHA-256,
+  экспорт и очистка;
 - `apps/bot` — grammY webhook/polling и идемпотентные уведомления;
 - `packages/db` — нормализованная Drizzle-схема, SQL-миграции и seed;
 - `packages/shared` — DTO, Zod-валидация, политики доступа и загрузки;
 - `packages/config` — строгая проверка переменных окружения;
 - `packages/ui` — общие доступные UI-примитивы.
 
-PostgreSQL хранит только метаданные. Redis хранит сессии, rate limit и BullMQ. MinIO
-используется через S3 API; пользовательские bucket'ы приватны. В production Caddy
-терминирует TLS, а локально ту же маршрутизацию выполняет Nginx.
+PostgreSQL — источник истины для кошельков, ledger, заказов и метаданных. Redis хранит
+сесии, rate limit и BullMQ, но не балансы. В production файлы лежат в приватном Beget S3 под
+выделенным префиксом; MinIO — только локальный S3-совместимый стенд. Caddy терминирует TLS и
+проксирует подписанные S3-запросы без раскрытия учётных данных.
 
 ## Поток авторизации
 
@@ -35,11 +37,11 @@ Dev-вход существует только при `NODE_ENV != production` �
 Mini App -> API: submission + /uploads/init
 API -> PostgreSQL: artifact(status=uploading, случайный object_key)
 API -> Mini App: presigned PUT либо multipart part URLs
-Mini App -> MinIO: байты напрямую
+Mini App -> Beget S3: байты напрямую по presigned URL
 Mini App -> API: /complete (идемпотентно)
 API -> outbox + BullMQ: artifact.uploaded
-Worker -> MinIO: HEAD, потоковое чтение, SHA-256, опциональный ClamAV
-Worker -> MinIO: quarantine -> private, удаление исходного объекта
+Worker -> Beget S3: HEAD, потоковое чтение, SHA-256, опциональный ClamAV
+Worker -> Beget S3: incoming -> именованная папка, удаление исходного объекта
 Worker -> PostgreSQL: artifact=ready, submission=ready
 Worker -> outbox -> bot: одно подтверждение
 ```
@@ -65,6 +67,13 @@ ZIP содержит единственную папку мероприятия,
 участника/отправки с исходными файлами, `text.txt` и `metadata.json`. Имена сегментов
 нормализуются и не могут содержать path traversal.
 
+## Кошелёк и QR
+
+Баланс меняется только через сбалансированную двойную проводку. Перевод, покупка и
+награда за артефакт коммитят ledger, кеш баланса и outbox одной транзакцией. QR содержит
+только случайный токен; в PostgreSQL хранится SHA-256, а после использования или TTL сессия закрывается.
+Подробные правила зафиксированы в [docs/wallet.md](docs/wallet.md).
+
 ## Надёжность
 
 - Транзакционный `outbox_events` сохраняет намерение запустить проверку, экспорт или
@@ -85,13 +94,12 @@ ZIP содержит единственную папку мероприятия,
 - API ограничивает origin, размер JSON, rate limit и выставляет security headers.
 - Логи редактируют cookie, Authorization, CSRF, `initData` и presigned URL.
 - Административные операции проверяют роль на сервере и пишутся в `audit_logs`.
-- Runtime-пользователь PostgreSQL не владеет схемой, а S3-пользователь ограничен
-  тремя bucket'ами.
+- Runtime-пользователь PostgreSQL не владеет схемой, а S3-ключ ограничен нужным
+  bucket/префиксом.
 
 ## Масштабирование и границы MVP
 
 Поиск сейчас использует PostgreSQL `pg_trgm` и keyset pagination. При росте его можно
-заменить отдельным движком, не меняя DTO. S3-адаптер совместим с AWS S3. Встроенный
+заменить отдельным движком, не меняя DTO. S3-адаптер совместим с Beget/AWS S3. Встроенный
 preview использует защищённый download URL; серверная генерация превью и распознавание
-контента сознательно не входят в MVP. Резервное копирование выполняется средствами
-инфраструктуры PostgreSQL/MinIO и описано в README.
+контента сознательно не входят в MVP. Резервное копирование PostgreSQL и Beget S3 описано в README.

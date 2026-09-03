@@ -12,8 +12,8 @@ describe('export storage invalidation', () => {
             {
               id: 'export-id',
               kind: 'zip',
-              bucket: 'exports',
-              objectKey: 'event-id/export-id.zip',
+              bucket: 'legacy',
+              objectKey: 'locker/exports/event-id/export-id.zip',
             },
           ]),
         })),
@@ -44,8 +44,8 @@ describe('export storage invalidation', () => {
     });
     const app = {
       db,
-      s3Internal: { send } as unknown as S3Client,
-      config: { S3_EXPORT_BUCKET: 'exports' },
+      s3: { send } as unknown as S3Client,
+      config: { S3_BUCKET: 'shared', S3_PREFIX: 'locker/' },
       log: { warn: vi.fn() },
     };
 
@@ -53,11 +53,14 @@ describe('export storage invalidation', () => {
       invalidateEventExports(app as never, 'event-id', 'Заменена новой выгрузкой', 'zip'),
     ).resolves.toEqual({
       invalidatedExports: 1,
-      deletedObjects: 1,
+      deletedObjects: 2,
       abortedMultipartUploads: 0,
       cleanupPending: false,
     });
-    expect(deleted).toEqual(['exports:event-id/export-id.zip']);
+    expect(deleted).toEqual([
+      'shared:locker/exports/event-id/export-id.zip',
+      'legacy:locker/exports/event-id/export-id.zip',
+    ]);
     expect(updates).toEqual([
       expect.objectContaining({
         status: 'expired',

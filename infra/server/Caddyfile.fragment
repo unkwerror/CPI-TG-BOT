@@ -3,6 +3,24 @@
 __ARTIFACTS_DOMAIN__ {
 	encode zstd gzip
 
+	# OAuth authorization codes and state are single-use credentials. Do not write their query
+	# string to Caddy access logs or forward the callback URL as a referrer.
+	@leaderIdOAuthCallback path /api/v1/catalyst/leader-id/oauth/callback
+	log_skip @leaderIdOAuthCallback
+	header @leaderIdOAuthCallback {
+		Cache-Control "no-store"
+		Referrer-Policy "no-referrer"
+	}
+
+	# Браузер ходит за файлами через свой домен, а не в облако напрямую:
+	# часть адресов провайдера недоступна из пользовательских сетей.
+	# Подпись считается для хоста хранилища, поэтому его же подставляем в Host.
+	handle_path /storage/* {
+		reverse_proxy https://__S3_UPSTREAM__ {
+			header_up Host __S3_UPSTREAM__
+		}
+	}
+
 	handle /api/* {
 		reverse_proxy artifacts-api:3001
 	}
@@ -19,20 +37,13 @@ __ARTIFACTS_DOMAIN__ {
 		reverse_proxy artifacts-bot:3002
 	}
 
+	handle /max/webhook {
+		reverse_proxy artifacts-bot:3002
+	}
+
 	handle {
 		reverse_proxy artifacts-web:3000
 	}
-
-	header {
-		Strict-Transport-Security "max-age=31536000; includeSubDomains"
-		X-Content-Type-Options nosniff
-		Referrer-Policy strict-origin-when-cross-origin
-		-Server
-	}
-}
-
-__ARTIFACTS_S3_DOMAIN__ {
-	reverse_proxy artifacts-minio:9000
 
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"

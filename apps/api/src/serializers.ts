@@ -1,4 +1,5 @@
 import type { artifacts, events, exportJobs, submissions, users } from '@cpi/db';
+import { sanitizeRichContent, sanitizeRichHtml } from './rich-content';
 
 type EventRow = typeof events.$inferSelect;
 type UserRow = typeof users.$inferSelect;
@@ -17,6 +18,11 @@ export function serializeEvent(event: EventRow) {
     now <= event.acceptUploadsUntil;
   return {
     ...publicEvent,
+    description: event.description
+      ? sanitizeRichContent(event.description, event.descriptionFormat)
+      : null,
+    cardHtml: event.cardHtml ? sanitizeRichHtml(event.cardHtml) : null,
+    originatedFromCrm: event.managedByCrm || event.tags.includes('CRM'),
     maxFileSizeBytes: Number(event.maxFileSizeBytes),
     acceptsUploads,
   };
@@ -25,7 +31,7 @@ export function serializeEvent(event: EventRow) {
 export function serializeUser(user: UserRow) {
   return {
     ...user,
-    telegramUserId: user.telegramUserId.toString(),
+    telegramUserId: user.telegramUserId?.toString() ?? null,
   };
 }
 

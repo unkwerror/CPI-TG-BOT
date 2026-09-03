@@ -20,38 +20,24 @@ import {
   artifacts,
   auditLogs,
   eventParticipants,
-  eventRequests,
   events,
   exportJobs,
-  outboxEvents,
+  leaderIdBindings,
   submissions,
   users,
 } from '@cpi/db';
 import {
   AppError,
   artifactStatuses,
-  audienceFilters,
-  audienceQuerySchema,
   eventShortCodeFromTitle,
   eventSlugFromTitle,
   eventCreateSchema,
-  eventRequestListQuerySchema,
-  eventRequestUpdateSchema,
+  eventStoragePrefixes,
   eventUpdateSchema,
+  exportObjectKey,
   paginationQuerySchema,
   parseCursorPagination,
-  parseKeysetPagination,
 } from '@cpi/shared';
-import { buildXlsxBuffer } from '@cpi/spreadsheet';
-import {
-  AUDIENCE_EXPORT_LIMIT,
-  audienceConditions,
-  audienceCounters,
-  countAudience,
-  selectAudience,
-} from '../audience';
-import { audienceSheet, exportFileName, XLSX_CONTENT_TYPE } from '../audience-export';
-import { countEventRequests, eventRequestCounters, selectEventRequests } from '../requests';
 import { writeAudit } from '../audit';
 import {
   serializeArtifact,
@@ -62,7 +48,7 @@ import {
 import { deleteArtifactObjects } from '../artifact-storage';
 import { purgeEventStorage, purgeStoredObjects, type StoredObjectTarget } from '../event-storage';
 import { invalidateEventExports } from '../export-storage';
-import { createEventValues, EVENT_TIME_ZONE, updateEventValues } from '../event-values';
+import { sanitizeRichContent, sanitizeRichHtml } from '../rich-content';
 
 const participantQuerySchema = paginationQuerySchema.extend({
   eventId: z.uuid().optional(),
@@ -71,11 +57,6 @@ const participantQuerySchema = paginationQuerySchema.extend({
 const eventParticipantParamsSchema = z.object({
   eventId: z.uuid(),
   userId: z.uuid(),
-});
-
-const crmSyncRequestSchema = z.object({
-  userIds: z.array(z.uuid()).min(1).max(1_000).optional(),
-  filter: z.enum(audienceFilters).default('crm_pending'),
 });
 
 const artifactQuerySchema = paginationQuerySchema.extend({
@@ -88,6 +69,7 @@ const statusUpdateSchema = z.object({
   reason: z.string().trim().max(2_000).nullable().optional(),
 });
 
+const EVENT_TIME_ZONE = 'Asia/Novosibirsk';
 const eventTitleSchema = z.string().trim().min(2).max(300);
 
 function identifierWithSuffix(base: string, suffix: number, maximum: number, separator: string) {
@@ -145,6 +127,105 @@ async function uniqueEventIdentifiers(
     shortCode = identifierWithSuffix(codeBase, codeIndex, 24, '_');
   }
   return { slug, shortCode };
+}
+
+function createEventValues(
+  body: z.infer<typeof eventCreateSchema>,
+  userId: string,
+): typeof events.$inferInsert {
+  return {
+    title: body.title,
+    slug: body.slug,
+    shortCode: body.shortCode,
+    description: body.description
+      ? sanitizeRichContent(body.description, body.descriptionFormat)
+      : null,
+    descriptionFormat: body.descriptionFormat,
+    cardHtml: body.cardHtml ? sanitizeRichHtml(body.cardHtml) : null,
+    organizer: body.organizer,
+    startsAt: new Date(body.startsAt),
+    endsAt: new Date(body.endsAt),
+    timezone: EVENT_TIME_ZONE,
+    venue: body.venue ?? null,
+    city: body.city ?? null,
+    format: body.format,
+    status: body.status,
+    tags: body.tags,
+    coverUrl: body.coverUrl ?? null,
+    acceptUploadsFrom: new Date(body.acceptUploadsFrom),
+    acceptUploadsUntil: new Date(body.acceptUploadsUntil),
+    maxFileSizeBytes: body.maxFileSizeBytes,
+    allowedMimeTypes: body.allowedMimeTypes,
+    blockedExtensions: body.blockedExtensions,
+    directAccessEnabled: body.directAccessEnabled,
+    leaderIdEventId: body.leaderIdEventId,
+    leaderIdRegistrationActive: body.leaderIdRegistrationActive,
+    leaderIdRequiredForSubscription: body.leaderIdRequiredForSubscription,
+    leaderIdRegistrationOpen: body.leaderIdRegistrationOpen,
+    leaderIdSortOrder: body.leaderIdSortOrder,
+    leaderIdRequiresQuestionnaire: body.leaderIdRequiresQuestionnaire,
+    createdBy: userId,
+    updatedBy: userId,
+  };
+}
+
+function updateEventValues(
+  body: z.infer<typeof eventUpdateSchema>,
+  userId: string,
+): Partial<typeof events.$inferInsert> {
+  return {
+    ...(body.title === undefined ? {} : { title: body.title }),
+    ...(body.slug === undefined ? {} : { slug: body.slug }),
+    ...(body.shortCode === undefined ? {} : { shortCode: body.shortCode }),
+    ...(body.description === undefined
+      ? {}
+      : {
+          description: body.description
+            ? sanitizeRichContent(body.description, body.descriptionFormat ?? 'text')
+            : null,
+        }),
+    ...(body.descriptionFormat === undefined ? {} : { descriptionFormat: body.descriptionFormat }),
+    ...(body.cardHtml === undefined
+      ? {}
+      : { cardHtml: body.cardHtml ? sanitizeRichHtml(body.cardHtml) : null }),
+    ...(body.organizer === undefined ? {} : { organizer: body.organizer }),
+    ...(body.startsAt === undefined ? {} : { startsAt: new Date(body.startsAt) }),
+    ...(body.endsAt === undefined ? {} : { endsAt: new Date(body.endsAt) }),
+    timezone: EVENT_TIME_ZONE,
+    ...(body.venue === undefined ? {} : { venue: body.venue ?? null }),
+    ...(body.city === undefined ? {} : { city: body.city ?? null }),
+    ...(body.format === undefined ? {} : { format: body.format }),
+    ...(body.status === undefined ? {} : { status: body.status }),
+    ...(body.tags === undefined ? {} : { tags: body.tags }),
+    ...(body.coverUrl === undefined ? {} : { coverUrl: body.coverUrl ?? null }),
+    ...(body.acceptUploadsFrom === undefined
+      ? {}
+      : { acceptUploadsFrom: new Date(body.acceptUploadsFrom) }),
+    ...(body.acceptUploadsUntil === undefined
+      ? {}
+      : { acceptUploadsUntil: new Date(body.acceptUploadsUntil) }),
+    ...(body.maxFileSizeBytes === undefined ? {} : { maxFileSizeBytes: body.maxFileSizeBytes }),
+    ...(body.allowedMimeTypes === undefined ? {} : { allowedMimeTypes: body.allowedMimeTypes }),
+    ...(body.blockedExtensions === undefined ? {} : { blockedExtensions: body.blockedExtensions }),
+    ...(body.directAccessEnabled === undefined
+      ? {}
+      : { directAccessEnabled: body.directAccessEnabled }),
+    ...(body.leaderIdEventId === undefined ? {} : { leaderIdEventId: body.leaderIdEventId }),
+    ...(body.leaderIdRegistrationActive === undefined
+      ? {}
+      : { leaderIdRegistrationActive: body.leaderIdRegistrationActive }),
+    ...(body.leaderIdRequiredForSubscription === undefined
+      ? {}
+      : { leaderIdRequiredForSubscription: body.leaderIdRequiredForSubscription }),
+    ...(body.leaderIdRegistrationOpen === undefined
+      ? {}
+      : { leaderIdRegistrationOpen: body.leaderIdRegistrationOpen }),
+    ...(body.leaderIdSortOrder === undefined ? {} : { leaderIdSortOrder: body.leaderIdSortOrder }),
+    ...(body.leaderIdRequiresQuestionnaire === undefined
+      ? {}
+      : { leaderIdRequiresQuestionnaire: body.leaderIdRequiresQuestionnaire }),
+    updatedBy: userId,
+  };
 }
 
 export const adminRoutes: FastifyPluginAsync = async (app) => {
@@ -291,6 +372,20 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         .limit(1);
       if (!currentEvent) throw new AppError('EVENT_NOT_FOUND', 'Мероприятие не найдено', 404);
 
+      const resultingLeaderIdEventId =
+        submittedBody.leaderIdEventId === undefined
+          ? currentEvent.leaderIdEventId
+          : submittedBody.leaderIdEventId;
+      const resultingLeaderIdRegistrationActive =
+        submittedBody.leaderIdRegistrationActive ?? currentEvent.leaderIdRegistrationActive;
+      if (resultingLeaderIdRegistrationActive && resultingLeaderIdEventId === null) {
+        throw new AppError(
+          'LEADER_ID_EVENT_REQUIRED',
+          'Для активной регистрации укажите ID мероприятия Leader-ID',
+          400,
+        );
+      }
+
       validateEventDateRanges({
         startsAt: submittedBody.startsAt ? new Date(submittedBody.startsAt) : currentEvent.startsAt,
         endsAt: submittedBody.endsAt ? new Date(submittedBody.endsAt) : currentEvent.endsAt,
@@ -304,11 +399,19 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       const identifiers = submittedBody.title
         ? await uniqueEventIdentifiers(app, submittedBody.title, eventId)
         : undefined;
+      const updatesDescription =
+        submittedBody.description !== undefined || submittedBody.descriptionFormat !== undefined;
+      const descriptionFormat = submittedBody.descriptionFormat ?? currentEvent.descriptionFormat;
+      const descriptionSource =
+        submittedBody.description === undefined
+          ? currentEvent.description
+          : submittedBody.description;
       const normalizedBody = {
         ...submittedBody,
         slug: undefined,
         shortCode: undefined,
         ...identifiers,
+        ...(updatesDescription ? { description: descriptionSource, descriptionFormat } : {}),
         timezone: EVENT_TIME_ZONE,
       };
       const [event] = await app.db
@@ -384,17 +487,50 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
           .where(eq(exportJobs.eventId, eventId));
       });
 
+      // Проверенные файлы лежат в папках с именами мероприятия и участника,
+      // поэтому их ключи берём из базы, а не по префиксу с идентификатором.
+      const storedArtifacts = await app.db
+        .select({
+          bucket: artifacts.bucket,
+          objectKey: artifacts.objectKey,
+          uploadId: artifacts.uploadId,
+        })
+        .from(artifacts)
+        .where(eq(artifacts.eventId, eventId));
+      const storedExports = await app.db
+        .select({
+          id: exportJobs.id,
+          bucket: exportJobs.bucket,
+          objectKey: exportJobs.objectKey,
+        })
+        .from(exportJobs)
+        .where(eq(exportJobs.eventId, eventId));
+
       let purgeResult;
       try {
-        purgeResult = await purgeEventStorage(
-          app.s3Internal,
-          [
-            app.config.S3_QUARANTINE_BUCKET,
-            app.config.S3_PRIVATE_BUCKET,
-            app.config.S3_EXPORT_BUCKET,
-          ],
-          eventId,
+        const byPrefix = await purgeEventStorage(
+          app.s3,
+          app.config.S3_BUCKET,
+          eventStoragePrefixes(app.config.S3_PREFIX, eventId),
         );
+        const byKey = await purgeStoredObjects(app.s3, [
+          ...storedArtifacts.map((artifact) => ({
+            bucket: artifact.bucket,
+            key: artifact.objectKey,
+            uploadId: artifact.uploadId,
+          })),
+          ...storedExports.flatMap((job) => {
+            if (!job.objectKey) return [];
+            if (!job.bucket) {
+              throw new Error(`Export ${job.id} has object_key without its persisted bucket`);
+            }
+            return [{ bucket: job.bucket, key: job.objectKey }];
+          }),
+        ]);
+        purgeResult = {
+          deletedObjects: byPrefix.deletedObjects + byKey.deletedObjects,
+          abortedMultipartUploads: byPrefix.abortedMultipartUploads + byKey.abortedMultipartUploads,
+        };
       } catch (error) {
         app.log.error({ error, eventId }, 'Event storage purge failed');
         throw new AppError(
@@ -430,132 +566,82 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
-  /**
-   * Полный список тех, кто вообще касался бота, а не только участников
-   * мероприятий: человек попадает сюда с первого «Старта», ещё до профиля.
-   */
   app.get(
     '/admin/users',
     { preHandler: readGuards, schema: { tags: ['admin', 'users'] } },
     async (request) => {
-      const query = audienceQuerySchema.parse(request.query);
-      const rows = await selectAudience(app.db, { ...query, limit: query.limit + 1 });
-      const page = parseKeysetPagination(rows, query.limit);
-      const [total, counters] = await Promise.all([
-        countAudience(app.db, query),
-        audienceCounters(app.db),
-      ]);
-      return { ...page, total, counters };
-    },
-  );
-
-  app.get(
-    '/admin/users/export',
-    { preHandler: readGuards, schema: { tags: ['admin', 'users'] } },
-    async (request, reply) => {
-      const query = audienceQuerySchema
-        .omit({ cursor: true, limit: true })
-        .parse(request.query ?? {});
-      const rows = await selectAudience(app.db, { ...query, limit: AUDIENCE_EXPORT_LIMIT });
-      const workbook = await buildXlsxBuffer([audienceSheet(rows)]);
-      await writeAudit(request, {
-        action: 'users.export',
-        entityType: 'user',
-        metadata: { filter: query.filter, eventId: query.eventId ?? null, rows: rows.length },
-      });
-      return reply
-        .header('content-type', XLSX_CONTENT_TYPE)
-        .header('content-disposition', `attachment; filename="${exportFileName('users', 'xlsx')}"`)
-        .send(workbook);
-    },
-  );
-
-  /**
-   * Ставит участников в очередь на выгрузку в CRM. Сама выгрузка идёт воркером
-   * через outbox, поэтому запрос возвращается сразу и не зависит от CRM.
-   */
-  app.post(
-    '/admin/users/crm-sync',
-    { preHandler: writeGuards, schema: { tags: ['admin', 'users'] } },
-    async (request) => {
-      const body = crmSyncRequestSchema.parse(request.body ?? {});
-      const targets = body.userIds
-        ? await app.db.select({ id: users.id }).from(users).where(inArray(users.id, body.userIds))
-        : await app.db
-            .select({ id: users.id })
-            .from(users)
-            .where(and(...audienceConditions({ filter: body.filter, limit: 0 })))
-            .limit(AUDIENCE_EXPORT_LIMIT);
-      if (targets.length === 0) return { queued: 0 };
-
-      await app.db
-        .insert(outboxEvents)
-        .values(
-          targets.map((target) => ({
-            type: 'crm.user.sync',
-            aggregateType: 'user',
-            aggregateId: target.id,
-            payload: { userId: target.id },
-          })),
-        )
-        .onConflictDoUpdate({
-          target: [outboxEvents.type, outboxEvents.aggregateType, outboxEvents.aggregateId],
-          set: { processedAt: null, availableAt: new Date(), attempts: 0, lastError: null },
-        });
-      await writeAudit(request, {
-        action: 'users.crm_sync',
-        entityType: 'user',
-        metadata: { queued: targets.length, filter: body.userIds ? 'explicit' : body.filter },
-      });
-      return { queued: targets.length };
-    },
-  );
-
-  /**
-   * Запросы, оставленные словами в боте. Отвечают на них вручную в Telegram,
-   * поэтому здесь только разбор очереди: статус и ответственный.
-   */
-  app.get(
-    '/admin/requests',
-    { preHandler: readGuards, schema: { tags: ['admin', 'requests'] } },
-    async (request) => {
-      const query = eventRequestListQuerySchema.parse(request.query ?? {});
-      const rows = await selectEventRequests(app.db, { ...query, limit: query.limit + 1 });
-      const page = parseKeysetPagination(rows, query.limit);
-      const [total, counters] = await Promise.all([
-        countEventRequests(app.db, query),
-        eventRequestCounters(app.db),
-      ]);
-      return { ...page, total, counters };
-    },
-  );
-
-  app.patch(
-    '/admin/requests/:requestId',
-    { preHandler: writeGuards, schema: { tags: ['admin', 'requests'] } },
-    async (request) => {
-      const { requestId } = request.params as { requestId: string };
-      const body = eventRequestUpdateSchema.parse(request.body ?? {});
-      const now = new Date();
-      const [updated] = await app.db
-        .update(eventRequests)
-        .set({
-          ...(body.status ? { status: body.status } : {}),
-          ...(body.assignedTo === undefined ? {} : { assignedTo: body.assignedTo }),
-          // Дата закрытия ставится один раз и снимается при возврате в работу.
-          ...(body.status ? { closedAt: body.status === 'closed' ? now : null } : {}),
-          updatedAt: now,
+      const query = participantQuerySchema.parse(request.query);
+      const conditions = [];
+      if (query.eventId) conditions.push(eq(eventParticipants.eventId, query.eventId));
+      if (query.cursor) conditions.push(gt(users.id, query.cursor));
+      if (query.q) {
+        conditions.push(
+          or(
+            ilike(users.fullName, `%${query.q}%`),
+            ilike(users.telegramUsername, `%${query.q}%`),
+            ilike(users.organization, `%${query.q}%`),
+          )!,
+        );
+      }
+      const rows = await app.db
+        .select({
+          user: users,
+          joinedAt: sql<Date | null>`min(${eventParticipants.joinedAt})`,
+          lastSubmissionAt: sql<Date | null>`max(${eventParticipants.lastSubmissionAt})`,
+          submissionCount: countDistinct(submissions.id),
+          artifactCount: countDistinct(artifacts.id),
+          totalBytes: sql<number>`coalesce(sum(distinct ${artifacts.sizeBytes}), 0)`,
+          leaderIdUserId: leaderIdBindings.leaderIdUserId,
+          leaderIdLinkedAt: leaderIdBindings.linkedAt,
         })
-        .where(eq(eventRequests.id, requestId))
-        .returning({ id: eventRequests.id, status: eventRequests.status });
-      if (!updated) throw new AppError('REQUEST_NOT_FOUND', 'Запрос не найден', 404);
-      await writeAudit(request, {
-        action: 'request.update',
-        entityType: 'event_request',
-        entityId: requestId,
-        metadata: { status: updated.status, assignedTo: body.assignedTo ?? null },
-      });
-      return updated;
+        .from(users)
+        .leftJoin(leaderIdBindings, eq(leaderIdBindings.userId, users.id))
+        .leftJoin(eventParticipants, eq(eventParticipants.userId, users.id))
+        .leftJoin(
+          submissions,
+          and(
+            eq(submissions.userId, users.id),
+            query.eventId ? eq(submissions.eventId, query.eventId) : sql`true`,
+            isNull(submissions.deletedAt),
+          ),
+        )
+        .leftJoin(
+          artifacts,
+          and(
+            eq(artifacts.userId, users.id),
+            query.eventId ? eq(artifacts.eventId, query.eventId) : sql`true`,
+            isNull(artifacts.deletedAt),
+          ),
+        )
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .groupBy(
+          users.id,
+          leaderIdBindings.userId,
+          leaderIdBindings.leaderIdUserId,
+          leaderIdBindings.linkedAt,
+        )
+        .orderBy(asc(users.id))
+        .limit(query.limit + 1);
+      const page = parseCursorPagination(
+        rows.map((row) => ({
+          ...serializeUser(row.user),
+          joinedAt: row.joinedAt,
+          lastSubmissionAt: row.lastSubmissionAt,
+          submissionCount: Number(row.submissionCount),
+          artifactCount: Number(row.artifactCount),
+          totalBytes: Number(row.totalBytes),
+          leaderId:
+            row.leaderIdUserId === null
+              ? { status: 'not_linked' as const }
+              : {
+                  status: 'linked' as const,
+                  userId: row.leaderIdUserId,
+                  linkedAt: row.leaderIdLinkedAt,
+                },
+        })),
+        query.limit,
+      );
+      return page;
     },
   );
 
@@ -656,32 +742,32 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
 
       const storageTargets: StoredObjectTarget[] = [];
       for (const artifact of removal.storedArtifacts) {
-        for (const bucket of new Set([
-          artifact.bucket,
-          app.config.S3_QUARANTINE_BUCKET,
-          app.config.S3_PRIVATE_BUCKET,
-        ])) {
-          storageTargets.push({
-            bucket,
-            key: artifact.objectKey,
-            uploadId: bucket === artifact.bucket ? artifact.uploadId : null,
-          });
-        }
+        storageTargets.push({
+          bucket: artifact.bucket,
+          key: artifact.objectKey,
+          uploadId: artifact.uploadId,
+        });
       }
       for (const job of removal.storedExports) {
-        const generatedKey = `${eventId}/${job.id}.${job.kind}`;
         storageTargets.push({
-          bucket: app.config.S3_EXPORT_BUCKET,
-          key: generatedKey,
+          bucket: app.config.S3_BUCKET,
+          key: exportObjectKey(app.config.S3_PREFIX, {
+            eventId,
+            exportJobId: job.id,
+            kind: job.kind,
+          }),
         });
-        if (job.bucket && job.objectKey) {
+        if (job.objectKey) {
+          if (!job.bucket) {
+            throw new Error(`Export ${job.id} has object_key without its persisted bucket`);
+          }
           storageTargets.push({ bucket: job.bucket, key: job.objectKey });
         }
       }
 
       let purgeResult;
       try {
-        purgeResult = await purgeStoredObjects(app.s3Internal, storageTargets);
+        purgeResult = await purgeStoredObjects(app.s3, storageTargets);
       } catch (error) {
         app.log.error({ error, eventId, userId }, 'Participant storage purge failed');
         throw new AppError(

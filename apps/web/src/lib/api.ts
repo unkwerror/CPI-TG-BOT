@@ -1,7 +1,8 @@
 'use client';
 
 import type { AuthResponse } from '@cpi/shared';
-import { waitForTelegramInitData } from './telegram-context';
+import { readApiError } from './api-error';
+import { getMessengerLaunchData, waitForMessengerLaunchData } from './messenger-context';
 
 export class ApiClientError extends Error {
   constructor(
@@ -17,27 +18,43 @@ export class ApiClientError extends Error {
 let csrfToken: string | null = null;
 let sessionToken: string | null = null;
 
+function writeSessionValue(key: string, value: string): void {
+  try {
+    window.sessionStorage.setItem(key, value);
+  } catch {
+    // Private/restricted messenger WebViews can deny Web Storage. In-memory auth still works.
+  }
+}
+
+function readSessionValue(key: string): string | null {
+  try {
+    return window.sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
 export function setCsrfToken(value: string): void {
   csrfToken = value;
-  sessionStorage.setItem('csrfToken', value);
+  writeSessionValue('csrfToken', value);
 }
 
 function setSessionToken(value: string): void {
   sessionToken = value;
-  sessionStorage.setItem('sessionToken', value);
+  writeSessionValue('sessionToken', value);
 }
 
 function getCsrfToken(): string | null {
-  csrfToken ??= sessionStorage.getItem('csrfToken');
+  csrfToken ??= readSessionValue('csrfToken');
   return csrfToken;
 }
 
 function getSessionToken(): string | null {
-  sessionToken ??= sessionStorage.getItem('sessionToken');
+  sessionToken ??= readSessionValue('sessionToken');
   return sessionToken;
 }
 
-function saveAuthSession(session: AuthResponse): void {
+export function saveAuthSession(session: AuthResponse): void {
   setCsrfToken(session.csrfToken);
   setSessionToken(session.sessionToken);
 }
@@ -67,53 +84,25 @@ export async function api<T>(
   const payload = (await response.json().catch(() => null)) as
     T | { error?: { code?: string; message?: string } } | null;
   if (!response.ok) {
-    const error = (payload as { error?: { code?: string; message?: string } } | null)?.error;
-    throw new ApiClientError(
-      error?.message ?? 'Не удалось выполнить запрос',
-      error?.code ?? 'REQUEST_FAILED',
-      response.status,
-    );
+    const error = readApiError(payload);
+    throw new ApiClientError(error.message, error.code, response.status);
   }
   return payload as T;
 }
 
-/**
- * Скачивает ответ как файл. Обычный `api` не подходит: он всегда разбирает JSON,
- * а выгрузка приходит текстом CSV.
- */
-export async function apiDownloadFile(path: string, fallbackName: string): Promise<void> {
-  const headers = new Headers();
-  const bearer = getSessionToken();
-  if (bearer) headers.set('authorization', `Bearer ${bearer}`);
-  const response = await fetch(`/api/v1${path}`, {
-    headers,
-    credentials: 'include',
-    cache: 'no-store',
-  });
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as {
-      error?: { code?: string; message?: string };
-    } | null;
-    throw new ApiClientError(
-      payload?.error?.message ?? 'Не удалось подготовить выгрузку',
-      payload?.error?.code ?? 'REQUEST_FAILED',
-      response.status,
-    );
-  }
-  const disposition = response.headers.get('content-disposition') ?? '';
-  const suggested = /filename="([^"]+)"/u.exec(disposition)?.[1];
-  const blob = await response.blob();
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = suggested ?? fallbackName;
-  document.body.append(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-}
-
 export async function authenticate(): Promise<AuthResponse> {
+  // A shared browser can retain a cookie from the other messenger. Prefer the
+  // current signed launch context so the active Telegram/MAX identity wins.
+  const immediateLaunch = getMessengerLaunchData();
+  if (immediateLaunch) {
+    const result = await api<AuthResponse>(
+      `/auth/${immediateLaunch.provider}`,
+      { method: 'POST', body: JSON.stringify({ initData: immediateLaunch.initData }) },
+      { csrf: false },
+    );
+    saveAuthSession(result);
+    return result;
+  }
   try {
     const session = await api<AuthResponse>('/auth/session');
     saveAuthSession(session);
@@ -121,11 +110,11 @@ export async function authenticate(): Promise<AuthResponse> {
   } catch (error) {
     if (!(error instanceof ApiClientError) || error.status !== 401) throw error;
   }
-  const initData = await waitForTelegramInitData();
-  if (initData) {
+  const launch = await waitForMessengerLaunchData();
+  if (launch) {
     const result = await api<AuthResponse>(
-      '/auth/telegram',
-      { method: 'POST', body: JSON.stringify({ initData }) },
+      `/auth/${launch.provider}`,
+      { method: 'POST', body: JSON.stringify({ initData: launch.initData }) },
       { csrf: false },
     );
     saveAuthSession(result);
@@ -141,8 +130,8 @@ export async function authenticate(): Promise<AuthResponse> {
     return result;
   }
   throw new ApiClientError(
-    'Telegram не передал данные входа. Закройте это окно и снова откройте приложение в Telegram',
-    'TELEGRAM_CONTEXT_REQUIRED',
+    'Мессенджер не передал данные входа. Закройте это окно и снова откройте приложение из бота',
+    'MESSENGER_CONTEXT_REQUIRED',
     401,
   );
 }
@@ -164,6 +153,33 @@ export function uploadWithProgress(
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve(xhr.getResponseHeader('etag') ?? '');
       } else {
+        reject(
+          new ApiClientError(`Хранилище ответило ${xhr.status}`, 'S3_UPLOAD_FAILED', xhr.status),
+        );
+      }
+    };
+    xhr.onerror = () =>
+      reject(new ApiClientError('Потеряна сеть при загрузке', 'NETWORK_ERROR', 0));
+    xhr.onabort = () => reject(new ApiClientError('Загрузка отменена', 'UPLOAD_ABORTED', 0));
+    xhr.send(body);
+  });
+}
+
+export function uploadWithHeadersAndProgress(
+  url: string,
+  body: Blob,
+  method: 'PUT',
+  headers: Record<string, string>,
+  onProgress: (loaded: number, total: number) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(method, url);
+    for (const [name, value] of Object.entries(headers)) xhr.setRequestHeader(name, value);
+    xhr.upload.onprogress = (event) => onProgress(event.loaded, event.total || body.size);
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else {
         reject(
           new ApiClientError(`Хранилище ответило ${xhr.status}`, 'S3_UPLOAD_FAILED', xhr.status),
         );

@@ -1,18 +1,30 @@
 import { createServer } from 'node:http';
-import { S3Client } from '@aws-sdk/client-s3';
+import { HeadBucketCommand, S3Client } from '@aws-sdk/client-s3';
 import { Queue, Worker } from 'bullmq';
 import { sql } from 'drizzle-orm';
 import Redis from 'ioredis';
 import pino from 'pino';
 import { parseEnvironment, workerEnvironmentSchema } from '@cpi/config';
-import { createDatabase } from '@cpi/db';
-import { campaignReplyActions } from '@cpi/shared';
+import { assertStorageCutoverInvariant, createDatabase } from '@cpi/db';
 import type { WorkerContext } from './context';
 import { buildExport } from './exporter';
-import { reportCampaignReply, syncSubmissionToCrm, syncUserToCrm } from './crm-sync';
+import {
+  syncAllActiveUsersToCrm,
+  syncAllLockerEventsToCrm,
+  syncAllParticipationsToCrm,
+  syncReadySubmissionsToCrm,
+  pullCrmEventsIntoLocker,
+  syncEventToCrm,
+  syncParticipationToCrm,
+  syncSubmissionToCrm,
+  syncUserToCrm,
+} from './crm-sync';
 import { runMaintenance } from './maintenance';
 import { dispatchOutbox } from './outbox';
 import { verifyArtifact } from './verifier';
+import { assertClamavReady } from './clamav';
+import { configuredClamavScanner } from './verification-policy';
+import { reconcileContentBroadcastSchedules } from './content-broadcasts';
 
 const config = parseEnvironment(workerEnvironmentSchema, process.env);
 const logger = pino({
@@ -28,7 +40,7 @@ const connection = new Redis(config.REDIS_URL, {
   enableReadyCheck: true,
 });
 const s3 = new S3Client({
-  endpoint: config.S3_INTERNAL_ENDPOINT,
+  endpoint: config.S3_ENDPOINT,
   region: config.S3_REGION,
   credentials: {
     accessKeyId: config.S3_ACCESS_KEY,
@@ -76,21 +88,25 @@ const exportWorker = new Worker(
 const crmWorker = new Worker(
   'crm-sync',
   async (job) => {
-    if (job.name === 'sync-user-to-crm') {
-      const userId = String((job.data as { userId?: string }).userId ?? '');
-      if (!userId) throw new Error('userId is required');
-      await syncUserToCrm(context, userId);
+    const data = job.data as {
+      submissionId?: string;
+      userId?: string;
+      eventId?: string;
+    };
+    if (job.name === 'sync-user-to-crm' && data.userId) {
+      await syncUserToCrm(context, String(data.userId));
       return;
     }
-    if (job.name === 'report-campaign-reply') {
-      const data = job.data as { recipientId?: string; action?: string };
-      const action = campaignReplyActions.find((candidate) => candidate === data.action);
-      if (!data.recipientId || !action) throw new Error('recipientId and action are required');
-      await reportCampaignReply(context, { recipientId: data.recipientId, action });
+    if (job.name === 'sync-event-to-crm' && data.eventId) {
+      await syncEventToCrm(context, String(data.eventId));
       return;
     }
-    const submissionId = String((job.data as { submissionId?: string }).submissionId ?? '');
-    if (!submissionId) throw new Error('submissionId is required');
+    if (job.name === 'sync-participation-to-crm' && data.eventId && data.userId) {
+      await syncParticipationToCrm(context, String(data.eventId), String(data.userId));
+      return;
+    }
+    const submissionId = String(data.submissionId ?? '');
+    if (!submissionId) throw new Error('submissionId, userId or eventId is required');
     await syncSubmissionToCrm(context, submissionId);
   },
   {
@@ -152,12 +168,90 @@ const maintain = async () => {
   }
 };
 
+const pullCrmEvents = async () => {
+  if (stopping) return;
+  const lock = await connection.set(
+    `${config.REDIS_PREFIX}:crm-event-catalog-lock`,
+    process.pid.toString(),
+    'EX',
+    55,
+    'NX',
+  );
+  if (!lock) return;
+  try {
+    const result = await pullCrmEventsIntoLocker(context);
+    logger.info(result, 'CRM event catalog synchronized with Locker');
+  } catch (error) {
+    logger.error({ error }, 'CRM event catalog synchronization failed');
+  }
+};
+
+const reconcileCrmSubmissions = async () => {
+  if (stopping) return;
+  const lock = await connection.set(
+    `${config.REDIS_PREFIX}:crm-submission-reconciliation-lock`,
+    process.pid.toString(),
+    'EX',
+    240,
+    'NX',
+  );
+  if (!lock) return;
+  try {
+    const result = await syncReadySubmissionsToCrm(context);
+    if (result.total > 0) {
+      logger.info(result, 'CRM submission reconciliation completed');
+    }
+  } catch (error) {
+    logger.error({ error }, 'CRM submission reconciliation failed');
+  }
+};
+
+const reconcileContentBroadcasts = async () => {
+  if (stopping) return;
+  const lock = await connection.set(
+    `${config.REDIS_PREFIX}:content-broadcast-schedule-lock`,
+    process.pid.toString(),
+    'EX',
+    240,
+    'NX',
+  );
+  if (!lock) return;
+  try {
+    const result = await reconcileContentBroadcastSchedules(context);
+    if (result.eventUploads + result.feedPosts + result.products > 0) {
+      logger.info(result, 'Future content broadcasts scheduled');
+    }
+  } catch (error) {
+    logger.error({ error }, 'Content broadcast scheduling failed');
+  }
+};
+
 const outboxTimer = setInterval(() => void dispatch(), 5_000);
 const maintenanceTimer = setInterval(() => void maintain(), 5 * 60 * 1_000);
+const crmEventCatalogTimer = setInterval(() => void pullCrmEvents(), 60 * 1_000);
+const crmSubmissionReconciliationTimer = setInterval(
+  () => void reconcileCrmSubmissions(),
+  5 * 60 * 1_000,
+);
+const contentBroadcastTimer = setInterval(() => void reconcileContentBroadcasts(), 5 * 60 * 1_000);
 outboxTimer.unref();
 maintenanceTimer.unref();
+crmEventCatalogTimer.unref();
+crmSubmissionReconciliationTimer.unref();
+contentBroadcastTimer.unref();
 void dispatch();
 void maintain();
+void reconcileContentBroadcasts();
+void (async () => {
+  const usersResult = await syncAllActiveUsersToCrm(context);
+  logger.info(usersResult, 'CRM user backfill completed');
+  const eventsResult = await syncAllLockerEventsToCrm(context);
+  logger.info(eventsResult, 'CRM event backfill completed');
+  const participationsResult = await syncAllParticipationsToCrm(context);
+  logger.info(participationsResult, 'CRM participation backfill completed');
+  await reconcileCrmSubmissions();
+  await pullCrmEvents();
+})().catch((error) => logger.error({ error }, 'CRM startup reconciliation failed'));
 
 const healthServer = createServer(async (request, response) => {
   if (request.url === '/health/live') {
@@ -167,7 +261,14 @@ const healthServer = createServer(async (request, response) => {
   }
   if (request.url === '/health/ready') {
     try {
-      await Promise.all([db.execute(sql`select 1`), connection.ping()]);
+      await Promise.all([
+        db.execute(sql`select "active_season_id" from "point_programs" limit 1`),
+        connection.ping(),
+        s3.send(new HeadBucketCommand({ Bucket: config.S3_BUCKET })),
+        assertStorageCutoverInvariant(db, config.S3_BUCKET, config.S3_PREFIX),
+      ]);
+      const scanner = configuredClamavScanner(config);
+      if (scanner) await assertClamavReady(scanner);
       response.writeHead(200, { 'content-type': 'application/json' });
       response.end(JSON.stringify({ status: 'ready', service: 'worker' }));
     } catch {
@@ -191,6 +292,9 @@ const close = async (signal: string) => {
   logger.info({ signal }, 'Stopping worker');
   clearInterval(outboxTimer);
   clearInterval(maintenanceTimer);
+  clearInterval(crmEventCatalogTimer);
+  clearInterval(crmSubmissionReconciliationTimer);
+  clearInterval(contentBroadcastTimer);
   await Promise.allSettled([
     artifactWorker.close(),
     exportWorker.close(),

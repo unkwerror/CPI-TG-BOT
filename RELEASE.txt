@@ -1,0 +1,19 @@
+Release: catalyst-sequence-20260901-r1
+Date: 2026-09-01
+
+Production scope:
+- All 33 official events from Leader-ID Catalyst sequence 412
+- Automatic registration immediately after a verified OAuth binding
+- Sequential startup reconciliation for every existing verified binding
+- Registry-only draft rows keep the extra 32 events out of the Catalyst catalogue
+
+Validation:
+- 47 targeted Leader-ID and migration tests passed
+- API and database typechecks, API build, ESLint and Prettier passed
+- Full migration and idempotent replay passed on an isolated PostgreSQL 18 instance
+- Production reconciliation completed for 8 of 8 bindings
+- 264 of 264 official participations are unique and moderation-approved
+
+Rollback:
+- Source: /opt/CPI-TG-BOT.rollback-catalyst-sequence-20260901-r1
+- Database: /opt/backups/artifacts-before-catalyst-sequence-20260901-r1.dump

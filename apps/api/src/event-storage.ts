@@ -6,6 +6,11 @@ import {
   type S3Client,
 } from '@aws-sdk/client-s3';
 
+/**
+ * Новые файлы живут в одном общем бакете. Для безопасного cutover точечная
+ * уборка всё равно использует bucket+key, сохранённые у каждого объекта в БД.
+ */
+
 export interface EventStoragePurgeResult {
   deletedObjects: number;
   abortedMultipartUploads: number;
@@ -39,20 +44,18 @@ function isMissingMultipartUpload(error: unknown): boolean {
   );
 }
 
-export async function purgeStoredObjects(
+async function purgeBucketStoredObjects(
   s3: S3Client,
+  bucket: string,
   targets: Iterable<StoredObjectTarget>,
 ): Promise<EventStoragePurgeResult> {
-  const objectsByBucket = new Map<string, Set<string>>();
-  const multipartUploads = new Map<string, { bucket: string; key: string; uploadId: string }>();
+  const keys = new Set<string>();
+  const multipartUploads = new Map<string, { key: string; uploadId: string }>();
 
   for (const target of targets) {
-    const keys = objectsByBucket.get(target.bucket) ?? new Set<string>();
     keys.add(target.key);
-    objectsByBucket.set(target.bucket, keys);
     if (target.uploadId) {
-      multipartUploads.set(`${target.bucket}\0${target.key}\0${target.uploadId}`, {
-        bucket: target.bucket,
+      multipartUploads.set(`${target.key}\0${target.uploadId}`, {
         key: target.key,
         uploadId: target.uploadId,
       });
@@ -67,7 +70,7 @@ export async function purgeStoredObjects(
         try {
           await s3.send(
             new AbortMultipartUploadCommand({
-              Bucket: target.bucket,
+              Bucket: bucket,
               Key: target.key,
               UploadId: target.uploadId,
             }),
@@ -81,49 +84,63 @@ export async function purgeStoredObjects(
   }
 
   let deletedObjects = 0;
-  for (const [bucket, keys] of objectsByBucket) {
-    const objects = [...keys];
-    for (let index = 0; index < objects.length; index += 1_000) {
-      const batch = objects.slice(index, index + 1_000);
-      const result = await s3.send(
-        new DeleteObjectsCommand({
-          Bucket: bucket,
-          Delete: {
-            Objects: batch.map((Key) => ({ Key })),
-            Quiet: true,
-          },
-        }),
+  const objects = [...keys];
+  for (let index = 0; index < objects.length; index += 1_000) {
+    const batch = objects.slice(index, index + 1_000);
+    const result = await s3.send(
+      new DeleteObjectsCommand({
+        Bucket: bucket,
+        Delete: {
+          Objects: batch.map((Key) => ({ Key })),
+          Quiet: true,
+        },
+      }),
+    );
+    if (result.Errors?.length) {
+      const first = result.Errors[0];
+      throw new Error(
+        `S3 failed to delete ${result.Errors.length} stored objects; first error: ${first?.Code ?? 'unknown'}`,
       );
-      if (result.Errors?.length) {
-        const first = result.Errors[0];
-        throw new Error(
-          `S3 failed to delete ${result.Errors.length} stored objects; first error: ${first?.Code ?? 'unknown'}`,
-        );
-      }
-      deletedObjects += batch.length;
     }
+    deletedObjects += batch.length;
   }
 
   return { deletedObjects, abortedMultipartUploads };
 }
 
+/** Delete exact objects from the buckets persisted with those objects in the database. */
+export async function purgeStoredObjects(
+  s3: S3Client,
+  targets: Iterable<StoredObjectTarget>,
+): Promise<EventStoragePurgeResult> {
+  const byBucket = new Map<string, StoredObjectTarget[]>();
+  for (const target of targets) {
+    if (!target.bucket) throw new Error(`Missing persisted bucket for ${target.key}`);
+    const bucketTargets = byBucket.get(target.bucket) ?? [];
+    bucketTargets.push(target);
+    byBucket.set(target.bucket, bucketTargets);
+  }
+  const total = { deletedObjects: 0, abortedMultipartUploads: 0 };
+  for (const [bucket, bucketTargets] of byBucket) {
+    const result = await purgeBucketStoredObjects(s3, bucket, bucketTargets);
+    total.deletedObjects += result.deletedObjects;
+    total.abortedMultipartUploads += result.abortedMultipartUploads;
+  }
+  return total;
+}
+
 export async function purgeArtifactStorage(
   s3: S3Client,
-  buckets: Iterable<string>,
   artifacts: Iterable<ArtifactStorageReference>,
 ): Promise<EventStoragePurgeResult> {
-  const knownBuckets = [...new Set(buckets)];
-  const targets: StoredObjectTarget[] = [];
-  for (const artifact of artifacts) {
-    for (const bucket of new Set([artifact.bucket, ...knownBuckets])) {
-      targets.push({
-        bucket,
-        key: artifact.objectKey,
-        uploadId: bucket === artifact.bucket ? (artifact.uploadId ?? null) : null,
-      });
-    }
-  }
-  return purgeStoredObjects(s3, targets);
+  return purgeStoredObjects(
+    s3,
+    [...artifacts].map((artifact) => ({
+      bucket: artifact.bucket,
+      key: artifact.objectKey,
+      uploadId: artifact.uploadId ?? null,
+    })),
+  );
 }
 
 async function abortMultipartUploads(
@@ -195,15 +212,19 @@ async function deleteStoredObjects(s3: S3Client, bucket: string, prefix: string)
   }
 }
 
+/**
+ * Чистка папок мероприятия по префиксу. Проверенные файлы лежат в папках с
+ * именами мероприятия и участника, а не под идентификатором, поэтому их ключи
+ * вызывающий передаёт отдельно — из базы.
+ */
 export async function purgeEventStorage(
   s3: S3Client,
-  buckets: Iterable<string>,
-  eventId: string,
+  bucket: string,
+  prefixes: Iterable<string>,
 ): Promise<EventStoragePurgeResult> {
-  const prefix = `${eventId}/`;
   let deletedObjects = 0;
   let abortedMultipartUploads = 0;
-  for (const bucket of new Set(buckets)) {
+  for (const prefix of new Set(prefixes)) {
     abortedMultipartUploads += await abortMultipartUploads(s3, bucket, prefix);
     deletedObjects += await deleteStoredObjects(s3, bucket, prefix);
   }

@@ -3,12 +3,12 @@ import Image from 'next/image';
 export type CatMood = 'idle' | 'talk' | 'search' | 'upload' | 'sleep' | 'success';
 
 const cats: Record<CatMood, { src: string; alt: string }> = {
-  idle: { src: '/cats/helper-idle.svg', alt: 'Кот-помощник спокойно ждёт рядом' },
-  talk: { src: '/cats/helper-talk.svg', alt: 'Кот-помощник подсказывает следующий шаг' },
-  search: { src: '/cats/helper-search.svg', alt: 'Кот-помощник внимательно ищет' },
-  upload: { src: '/cats/helper-upload.svg', alt: 'Кот-помощник следит за загрузкой' },
-  sleep: { src: '/cats/helper-sleep.svg', alt: 'Кот-помощник отдыхает' },
-  success: { src: '/cats/helper-success.svg', alt: 'Кот-помощник празднует успех' },
+  idle: { src: '/cats/helper-idle-pink.svg', alt: 'Кот-помощник спокойно ждёт рядом' },
+  talk: { src: '/cats/helper-talk-pink.svg', alt: 'Кот-помощник подсказывает следующий шаг' },
+  search: { src: '/cats/helper-search-pink.svg', alt: 'Кот-помощник внимательно ищет' },
+  upload: { src: '/cats/helper-upload-pink.svg', alt: 'Кот-помощник следит за загрузкой' },
+  sleep: { src: '/cats/helper-sleep-pink.svg', alt: 'Кот-помощник отдыхает' },
+  success: { src: '/cats/helper-success-lime.svg', alt: 'Кот-помощник празднует успех' },
 };
 
 export function CatAssistant({

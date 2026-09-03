@@ -51,4 +51,23 @@ describe('Telegram initData validation', () => {
       }),
     ).toThrow(/устарела/i);
   });
+
+  it('rejects auth_date beyond the deterministic future skew', () => {
+    expect(() =>
+      verifyTelegramInitData(signedInitData(authDate + 61), botToken, {
+        now,
+        maxAgeSeconds: 300,
+      }),
+    ).toThrow(/будущем/i);
+  });
+
+  it('keeps the public missing-signature error contract', () => {
+    const unsigned = new URLSearchParams({
+      auth_date: String(authDate),
+      user: JSON.stringify({ id: 1, first_name: 'Иван' }),
+    });
+    expect(() => verifyTelegramInitData(unsigned.toString(), botToken, { now })).toThrow(
+      /отсутствует подпись/i,
+    );
+  });
 });

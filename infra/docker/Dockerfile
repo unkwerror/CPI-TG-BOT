@@ -9,7 +9,6 @@ COPY apps/worker/package.json apps/worker/package.json
 COPY packages/config/package.json packages/config/package.json
 COPY packages/db/package.json packages/db/package.json
 COPY packages/shared/package.json packages/shared/package.json
-COPY packages/spreadsheet/package.json packages/spreadsheet/package.json
 COPY packages/ui/package.json packages/ui/package.json
 RUN npm ci
 
@@ -58,6 +57,15 @@ FROM node:24-alpine AS bot
 WORKDIR /app
 ENV NODE_ENV=production
 RUN apk add --no-cache tini
+# MAX currently serves a chain anchored at the Ministry of Digital Development's Russian
+# Trusted Root CA. Node 24.20's bundled roots and Alpine's current ca-certificates package no
+# longer contain that anchor, so append only the official Gosuslugi certificate for this bot
+# image. Keep the fingerprint check beside the copy so an accidental asset replacement fails the
+# image build instead of silently widening trust.
+# Source: https://gu-st.ru/content/Other/doc/russian_trusted_root_ca.cer
+COPY --chown=node:node infra/certs/russian-trusted-root-ca.pem /app/certs/russian-trusted-root-ca.pem
+RUN node -e "const fs=require('node:fs');const {X509Certificate}=require('node:crypto');const cert=new X509Certificate(fs.readFileSync('/app/certs/russian-trusted-root-ca.pem'));const expected='D2:6D:2D:02:31:B7:C3:9F:92:CC:73:85:12:BA:54:10:35:19:E4:40:5D:68:B5:BD:70:3E:97:88:CA:8E:CF:31';if(!cert.ca||cert.issuer!==cert.subject||!cert.verify(cert.publicKey)||cert.fingerprint256!==expected)throw new Error('MAX API CA certificate verification failed')"
+ENV NODE_EXTRA_CA_CERTS=/app/certs/russian-trusted-root-ca.pem
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY --from=bot-build /app/apps/bot/dist ./apps/bot/dist
 COPY package.json ./

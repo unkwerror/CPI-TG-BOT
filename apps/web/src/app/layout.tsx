@@ -4,8 +4,8 @@ import type { ReactNode } from 'react';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Артефакты мероприятий',
-  description: 'Удобный сбор файлов, ссылок и заметок участников мероприятий',
+  title: 'Мои баллы — Стартап-студия НГУ',
+  description: 'Кошелёк Стартап-студии НГУ: баллы, мероприятия, артефакты и магазин',
   robots: { index: false, follow: false },
 };
 
@@ -14,10 +14,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   viewportFit: 'cover',
-  themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#eef6f6' },
-    { media: '(prefers-color-scheme: dark)', color: '#eef8fa' },
-  ],
+  themeColor: '#080808',
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
@@ -25,6 +22,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
     <html lang="ru" suppressHydrationWarning>
       <head>
         <Script src="https://telegram.org/js/telegram-web-app.js?63" strategy="beforeInteractive" />
+        <Script src="https://st.max.ru/js/max-web-app.js" strategy="beforeInteractive" />
       </head>
       <body>{children}</body>
     </html>

@@ -1,8 +1,12 @@
-import { AbortMultipartUploadCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
-import { and, eq, inArray, isNotNull, isNull, lt, or } from 'drizzle-orm';
-import { artifacts, exportJobs } from '@cpi/db';
+import {
+  AbortMultipartUploadCommand,
+  DeleteObjectCommand,
+  HeadObjectCommand,
+} from '@aws-sdk/client-s3';
+import { and, eq, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
+import { artifacts, exportJobs, outboxEvents, storeProductMedia } from '@cpi/db';
+import { deleteProductMediaObject } from '../../api/src/product-media';
 import type { WorkerContext } from './context';
-import { markSubmissionFailed } from './submission-state';
 
 function isMissingMultipartUpload(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
@@ -37,21 +41,11 @@ async function deleteArtifactObject(
       if (!isMissingMultipartUpload(error)) throw error;
     }
   }
-  await Promise.all(
-    [
-      ...new Set([
-        artifact.bucket,
-        context.config.S3_QUARANTINE_BUCKET,
-        context.config.S3_PRIVATE_BUCKET,
-      ]),
-    ].map((bucket) =>
-      context.s3.send(
-        new DeleteObjectCommand({
-          Bucket: bucket,
-          Key: artifact.objectKey,
-        }),
-      ),
-    ),
+  await context.s3.send(
+    new DeleteObjectCommand({
+      Bucket: artifact.bucket,
+      Key: artifact.objectKey,
+    }),
   );
 }
 
@@ -59,6 +53,7 @@ export async function runMaintenance(context: WorkerContext): Promise<{
   abandonedUploads: number;
   deletedObjects: number;
   expiredExports: number;
+  abandonedProductMedia: number;
 }> {
   const abandonedBefore = new Date(
     Date.now() - context.config.ABANDONED_UPLOAD_HOURS * 60 * 60 * 1000,
@@ -79,26 +74,72 @@ export async function runMaintenance(context: WorkerContext): Promise<{
   let abandonedUploads = 0;
   for (const artifact of abandoned) {
     try {
-      await deleteArtifactObject(context, artifact);
+      const outcome = await context.db.transaction(async (transaction) => {
+        await transaction.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${`artifact-complete:${artifact.id}`}, 0))`,
+        );
+        const [current] = await transaction
+          .select()
+          .from(artifacts)
+          .where(eq(artifacts.id, artifact.id))
+          .for('update')
+          .limit(1);
+        if (!current || !['created', 'uploading'].includes(current.status)) return 'skipped';
+
+        let head = null;
+        try {
+          head = await context.s3.send(
+            new HeadObjectCommand({
+              Bucket: current.bucket,
+              Key: current.objectKey,
+            }),
+          );
+        } catch (error) {
+          if (!isMissingMultipartUpload(error)) throw error;
+        }
+        if (
+          head &&
+          head.ContentLength === Number(current.sizeBytes) &&
+          head.Metadata?.artifact === current.id &&
+          head.Metadata?.submission === current.submissionId
+        ) {
+          await transaction
+            .update(artifacts)
+            .set({
+              status: 'uploaded',
+              statusReason: null,
+              etag: head.ETag ?? null,
+              uploadId: null,
+            })
+            .where(and(eq(artifacts.id, current.id), eq(artifacts.status, current.status)));
+          await transaction
+            .insert(outboxEvents)
+            .values({
+              type: 'artifact.uploaded',
+              aggregateType: 'artifact',
+              aggregateId: current.id,
+              payload: { artifactId: current.id },
+            })
+            .onConflictDoNothing();
+          return 'recovered';
+        }
+
+        await deleteArtifactObject(context, current);
+        await transaction
+          .update(artifacts)
+          .set({
+            status: 'failed',
+            statusReason: 'Истёк срок незавершённой загрузки',
+            uploadId: null,
+            storageDeletedAt: new Date(),
+          })
+          .where(eq(artifacts.id, current.id));
+        return 'abandoned';
+      });
+      if (outcome === 'abandoned') abandonedUploads += 1;
     } catch (error) {
       context.logger.warn({ error, artifactId: artifact.id }, 'Abandoned S3 upload cleanup failed');
-      continue;
     }
-    const [failed] = await context.db
-      .update(artifacts)
-      .set({
-        status: 'failed',
-        statusReason: 'Истёк срок незавершённой загрузки',
-        uploadId: null,
-        storageDeletedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(artifacts.id, artifact.id))
-      .returning({ id: artifacts.id });
-    // Файл больше не появится, поэтому отправку нужно снять с проверки: иначе она
-    // навсегда остаётся в `processing`, а участник видит вечное «Проверяется».
-    if (failed) await markSubmissionFailed(context, artifact.submissionId, artifact.id);
-    abandonedUploads += 1;
   }
 
   const deleted = await context.db
@@ -160,5 +201,26 @@ export async function runMaintenance(context: WorkerContext): Promise<{
     }
   }
 
-  return { abandonedUploads, deletedObjects, expiredExports };
+  const expiredProductMedia = await context.db
+    .select()
+    .from(storeProductMedia)
+    .where(
+      and(
+        eq(storeProductMedia.uploadStatus, 'pending'),
+        lt(storeProductMedia.uploadExpiresAt, new Date()),
+      ),
+    )
+    .limit(200);
+  let abandonedProductMedia = 0;
+  for (const media of expiredProductMedia) {
+    try {
+      await deleteProductMediaObject(context.s3, media);
+      await context.db.delete(storeProductMedia).where(eq(storeProductMedia.id, media.id));
+      abandonedProductMedia += 1;
+    } catch (error) {
+      context.logger.warn({ error, mediaId: media.id }, 'Expired product media cleanup failed');
+    }
+  }
+
+  return { abandonedUploads, deletedObjects, expiredExports, abandonedProductMedia };
 }

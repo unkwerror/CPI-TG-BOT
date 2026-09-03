@@ -2,7 +2,9 @@ import { expect, test } from '@playwright/test';
 
 test('участник ищет мероприятие и отправляет текст с файлом', async ({ page }) => {
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Найдите мероприятие' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Заработать баллы' })).toBeVisible();
+  await page.getByRole('button', { name: /События/ }).click();
+  await expect(page.getByRole('heading', { name: 'Ваши материалы — на месте' })).toBeVisible();
 
   await page.getByPlaceholder('Название, код, организатор').fill('DEMO2026');
   await page.getByRole('button', { name: /Сбор артефактов/ }).click();
@@ -25,6 +27,7 @@ test('участник ищет мероприятие и отправляет �
   await expect(page.getByText('Материалы Playwright')).toBeVisible();
   await expect(page.getByText('playwright-note.txt')).toBeVisible();
   await page.getByRole('button', { name: '← Мероприятия' }).click();
-  await page.getByRole('button', { name: /Мои материалы/ }).click();
+  await page.getByRole('button', { name: /Главная/ }).click();
+  await page.getByRole('button', { name: 'Артефакты' }).click();
   await expect(page.getByText('Материалы Playwright')).toBeVisible();
 });

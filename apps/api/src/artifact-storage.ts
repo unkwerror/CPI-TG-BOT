@@ -18,11 +18,7 @@ export async function deleteArtifactObjects(
   if (storedArtifacts.length === 0) {
     return { deletedObjects: 0, abortedMultipartUploads: 0 };
   }
-  const result = await purgeArtifactStorage(
-    app.s3Internal,
-    [app.config.S3_QUARANTINE_BUCKET, app.config.S3_PRIVATE_BUCKET],
-    storedArtifacts,
-  );
+  const result = await purgeArtifactStorage(app.s3, storedArtifacts);
   await app.db
     .update(artifacts)
     .set({ uploadId: null, storageDeletedAt: new Date() })

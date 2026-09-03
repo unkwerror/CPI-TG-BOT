@@ -260,6 +260,53 @@ const helperEyelids = `
    </g>
 `;
 
+function rgbToHslLightness(red, green, blue) {
+  const maximum = Math.max(red, green, blue) / 255;
+  const minimum = Math.min(red, green, blue) / 255;
+  return (maximum + minimum) / 2;
+}
+
+function hslToRgb(hue, saturation, lightness) {
+  const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation;
+  const component = chroma * (1 - Math.abs(((hue / 60) % 2) - 1));
+  const offset = lightness - chroma / 2;
+  const [red, green, blue] =
+    hue < 60
+      ? [chroma, component, 0]
+      : hue < 120
+        ? [component, chroma, 0]
+        : hue < 180
+          ? [0, chroma, component]
+          : hue < 240
+            ? [0, component, chroma]
+            : hue < 300
+              ? [component, 0, chroma]
+              : [chroma, 0, component];
+  return [red, green, blue].map((value) => Math.round((value + offset) * 255));
+}
+
+function brandedVariant(svg, accent) {
+  return svg.replace(/#[0-9a-fA-F]{6}/g, (hex) => {
+    const red = Number.parseInt(hex.slice(1, 3), 16);
+    const green = Number.parseInt(hex.slice(3, 5), 16);
+    const blue = Number.parseInt(hex.slice(5, 7), 16);
+    const spread = Math.max(red, green, blue) - Math.min(red, green, blue);
+    const cyan = spread > 28 && green > red + 22 && blue > red + 28 && blue >= green * 0.82;
+    if (!cyan) return hex;
+    const sourceLightness = rgbToHslLightness(red, green, blue);
+    const hue = accent === 'pink' ? 333 : 77;
+    const lightness = Math.min(
+      0.68,
+      Math.max(0.18, sourceLightness * (accent === 'pink' ? 1.08 : 1.12) + 0.015),
+    );
+    const branded = hslToRgb(hue, 0.93, lightness);
+    return `#${branded
+      .map((value) => value.toString(16).padStart(2, '0'))
+      .join('')
+      .toUpperCase()}`;
+  });
+}
+
 await mkdir(targetDirectory, { recursive: true });
 for (let index = 1; index <= 7; index += 1) {
   const source = await readFile(path.join(sourceDirectory, `коты каталисту${index}.svg`), 'utf8');
@@ -267,6 +314,16 @@ for (let index = 1; index <= 7; index += 1) {
     .replace('</style>', `${animationStyle(index)}\n   </style>`)
     .replace(/<g id="_\d+">/, '<g id="assistant-source">');
   await writeFile(path.join(targetDirectory, `cat-${index}.svg`), output, 'utf8');
+  await writeFile(
+    path.join(targetDirectory, `cat-${index}-pink.svg`),
+    brandedVariant(output, 'pink'),
+    'utf8',
+  );
+  await writeFile(
+    path.join(targetDirectory, `cat-${index}-lime.svg`),
+    brandedVariant(output, 'lime'),
+    'utf8',
+  );
 }
 
 const helperSource = await readFile(path.join(sourceDirectory, 'коты каталисту1.svg'), 'utf8');
@@ -276,4 +333,14 @@ for (const mood of Object.keys(helperMotion)) {
     .replace(/<g id="_\d+">/, '<g id="helper-source">')
     .replace(/ {2}<\/g>(\r?\n <\/g>\r?\n<\/svg>)/, `${helperEyelids}  </g>$1`);
   await writeFile(path.join(targetDirectory, `helper-${mood}.svg`), output, 'utf8');
+  await writeFile(
+    path.join(targetDirectory, `helper-${mood}-pink.svg`),
+    brandedVariant(output, 'pink'),
+    'utf8',
+  );
+  await writeFile(
+    path.join(targetDirectory, `helper-${mood}-lime.svg`),
+    brandedVariant(output, 'lime'),
+    'utf8',
+  );
 }

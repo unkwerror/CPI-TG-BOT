@@ -6,14 +6,13 @@ x-app-environment: &app-environment
   REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
   REDIS_PREFIX: ${REDIS_PREFIX:-cpi-artifacts}
   WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:8080}
-  S3_INTERNAL_ENDPOINT: http://minio:9000
-  S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+  S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+  S3_PUBLIC_BASE: ${S3_PUBLIC_BASE:-}
   S3_REGION: ${S3_REGION:-us-east-1}
   S3_ACCESS_KEY: ${S3_ACCESS_KEY}
   S3_SECRET_KEY: ${S3_SECRET_KEY}
-  S3_QUARANTINE_BUCKET: ${S3_QUARANTINE_BUCKET:-artifacts-quarantine}
-  S3_PRIVATE_BUCKET: ${S3_PRIVATE_BUCKET:-artifacts-private}
-  S3_EXPORT_BUCKET: ${S3_EXPORT_BUCKET:-artifacts-exports}
+  S3_BUCKET: ${S3_BUCKET:-cpi-artifacts}
+  S3_PREFIX: ${S3_PREFIX:-locker/}
   S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
   TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
   CRM_API_URL: ${CRM_DOCKER_API_URL:-http://host.docker.internal:3000/api}
@@ -108,9 +107,7 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
       S3_ACCESS_KEY: ${S3_ACCESS_KEY}
       S3_SECRET_KEY: ${S3_SECRET_KEY}
-      S3_QUARANTINE_BUCKET: ${S3_QUARANTINE_BUCKET:-artifacts-quarantine}
-      S3_PRIVATE_BUCKET: ${S3_PRIVATE_BUCKET:-artifacts-private}
-      S3_EXPORT_BUCKET: ${S3_EXPORT_BUCKET:-artifacts-exports}
+      S3_BUCKET: ${S3_BUCKET:-cpi-artifacts}
     entrypoint: [/bin/sh, /config/init.sh]
     volumes:
       - ./infra/minio/init.sh:/config/init.sh:ro
@@ -160,6 +157,18 @@ services:
       API_PORT: '3001'
       DEV_AUTH_ENABLED: ${DEV_AUTH_ENABLED:-true}
       SUPERADMIN_TELEGRAM_IDS: ${SUPERADMIN_TELEGRAM_IDS:-999000111}
+      SUPERADMIN_MAX_IDS: ${SUPERADMIN_MAX_IDS:-}
+      MAX_BOT_TOKEN: ${MAX_BOT_TOKEN:-}
+      MAX_AUTH_MAX_AGE_SECONDS: ${MAX_AUTH_MAX_AGE_SECONDS:-3600}
+      LEADER_ID_ENABLED: ${LEADER_ID_ENABLED:-false}
+      LEADER_ID_ENVIRONMENT: ${LEADER_ID_ENVIRONMENT:-production}
+      LEADER_ID_CLIENT_ID: ${LEADER_ID_CLIENT_ID:-}
+      LEADER_ID_CLIENT_SECRET: ${LEADER_ID_CLIENT_SECRET:-}
+      LEADER_ID_TOKEN_ACTIVE_KEY_ID: ${LEADER_ID_TOKEN_ACTIVE_KEY_ID:-}
+      LEADER_ID_TOKEN_KEYRING: ${LEADER_ID_TOKEN_KEYRING:-}
+      LEADER_ID_OAUTH_SCOPE: ${LEADER_ID_OAUTH_SCOPE:-}
+      LEADER_ID_OAUTH_STATE_TTL_SECONDS: ${LEADER_ID_OAUTH_STATE_TTL_SECONDS:-600}
+      LEADER_ID_API_TIMEOUT_MS: ${LEADER_ID_API_TIMEOUT_MS:-10000}
       TELEGRAM_AUTH_MAX_AGE_SECONDS: ${TELEGRAM_AUTH_MAX_AGE_SECONDS:-86400}
       SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-604800}
       SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-cpi_artifacts_session}
@@ -176,7 +185,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: [CMD, wget, -qO-, http://127.0.0.1:3001/health/live]
+      test: [CMD, wget, -qO-, http://127.0.0.1:3001/health/ready]
       interval: 10s
       timeout: 5s
       retries: 20
@@ -208,7 +217,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: [CMD, wget, -qO-, http://127.0.0.1:3003/health/live]
+      test: [CMD, wget, -qO-, http://127.0.0.1:3003/health/ready]
       interval: 10s
       timeout: 5s
       retries: 20
@@ -226,10 +235,17 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
       REDIS_PREFIX: ${REDIS_PREFIX:-cpi-artifacts}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      MAX_BOT_TOKEN: ${MAX_BOT_TOKEN:-}
+      MAX_BOT_USERNAME: ${MAX_BOT_USERNAME:-}
+      MAX_API_BASE: ${MAX_API_BASE:-https://platform-api2.max.ru}
+      MAX_WEBHOOK_PATH: ${MAX_WEBHOOK_PATH:-/max/webhook}
+      MAX_WEBHOOK_SECRET: ${MAX_WEBHOOK_SECRET:-}
       WEB_APP_URL: ${WEB_APP_URL:-http://localhost:8080}
       BOT_MODE: ${BOT_MODE:-polling}
       BOT_WEBHOOK_PATH: ${BOT_WEBHOOK_PATH:-/telegram/webhook}
       BOT_WEBHOOK_SECRET: ${BOT_WEBHOOK_SECRET}
+      CRM_API_URL: ${CRM_DOCKER_API_URL:-http://host.docker.internal:3000/api}
+      CRM_INTEGRATION_TOKEN: ${CRM_INTEGRATION_TOKEN:-local-locker-integration-token-change-me}
       BOT_PORT: '3002'
       LOG_LEVEL: ${LOG_LEVEL:-info}
     depends_on:
@@ -237,6 +253,8 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+    extra_hosts:
+      - host.docker.internal:host-gateway
     healthcheck:
       test: [CMD, wget, -qO-, http://127.0.0.1:3002/health/live]
       interval: 10s

@@ -34,7 +34,10 @@ describe('session cookie settings', () => {
     const { app } = appFor('production');
     const { reply, spies } = replyMock();
 
-    await createSession(app, reply, 'user-id');
+    await createSession(app, reply, 'user-id', {
+      provider: 'telegram',
+      externalUserId: '123456789',
+    });
 
     expect(spies.setCookie).toHaveBeenCalledWith(
       'session',
@@ -54,7 +57,10 @@ describe('session cookie settings', () => {
     const { app } = appFor('development');
     const { reply, spies } = replyMock();
 
-    await createSession(app, reply, 'user-id');
+    await createSession(app, reply, 'user-id', {
+      provider: 'max',
+      externalUserId: '987654321',
+    });
 
     expect(spies.setCookie).toHaveBeenCalledWith(
       'session',

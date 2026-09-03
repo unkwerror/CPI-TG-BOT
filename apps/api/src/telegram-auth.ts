@@ -1,4 +1,9 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import {
+  AuthDateInvalidError,
+  SignatureMissingError,
+  parse,
+  validate,
+} from '@tma.js/init-data-node';
 import { z } from 'zod';
 import { AppError } from '@cpi/shared';
 
@@ -27,39 +32,53 @@ export interface VerifiedTelegramData {
   startParam?: string;
 }
 
-function constantTimeHexEqual(left: string, right: string): boolean {
-  if (!/^[a-f0-9]{64}$/i.test(left) || !/^[a-f0-9]{64}$/i.test(right)) return false;
-  return timingSafeEqual(Buffer.from(left, 'hex'), Buffer.from(right, 'hex'));
-}
-
 export function verifyTelegramInitData(
   initData: string,
   botToken: string,
   options?: { now?: Date; maxAgeSeconds?: number },
 ): VerifiedTelegramData {
   const parameters = new URLSearchParams(initData);
-  const receivedHash = parameters.get('hash');
-  if (!receivedHash) {
+  if (!parameters.get('hash')) {
     throw new AppError('TELEGRAM_SIGNATURE_MISSING', 'В данных Telegram отсутствует подпись', 401);
   }
-
-  parameters.delete('hash');
-  const dataCheckString = [...parameters.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, value]) => `${key}=${value}`)
-    .join('\n');
-
-  const secretKey = createHmac('sha256', 'WebAppData').update(botToken).digest();
-  const calculatedHash = createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
-  if (!constantTimeHexEqual(calculatedHash, receivedHash)) {
+  try {
+    // The library owns Telegram's HMAC construction and constant-time signature comparison.
+    // Expiration is deliberately disabled here and checked below against the injected clock so
+    // tests, backfills and incident replay remain deterministic.
+    validate(initData, botToken, { expiresIn: 0 });
+  } catch (error) {
+    if (error instanceof SignatureMissingError) {
+      throw new AppError(
+        'TELEGRAM_SIGNATURE_MISSING',
+        'В данных Telegram отсутствует подпись',
+        401,
+      );
+    }
+    if (error instanceof AuthDateInvalidError) {
+      throw new AppError(
+        'TELEGRAM_AUTH_DATE_INVALID',
+        'Некорректная дата авторизации Telegram',
+        401,
+      );
+    }
     throw new AppError('TELEGRAM_SIGNATURE_INVALID', 'Подпись Telegram не прошла проверку', 401);
   }
 
-  const authDateSeconds = Number(parameters.get('auth_date'));
-  if (!Number.isSafeInteger(authDateSeconds) || authDateSeconds <= 0) {
-    throw new AppError('TELEGRAM_AUTH_DATE_INVALID', 'Некорректная дата авторизации Telegram', 401);
+  // `signature` was added for third-party Ed25519 validation and older Telegram WebApp clients
+  // legitimately omit it. `validate` above has already authenticated the original payload by
+  // hash, so an empty parser-only value preserves backwards compatibility without weakening it.
+  const parserParameters = new URLSearchParams(parameters);
+  if (!parserParameters.has('signature')) parserParameters.set('signature', '');
+  let parsed: ReturnType<typeof parse>;
+  try {
+    parsed = parse(parserParameters);
+  } catch {
+    if (!parameters.get('user')) {
+      throw new AppError('TELEGRAM_USER_MISSING', 'Telegram не передал данные пользователя', 401);
+    }
+    throw new AppError('TELEGRAM_USER_INVALID', 'Некорректные данные пользователя Telegram', 401);
   }
-  const authDate = new Date(authDateSeconds * 1000);
+  const authDate = parsed.auth_date;
   const now = options?.now ?? new Date();
   const maxAgeSeconds = options?.maxAgeSeconds ?? 86_400;
   const ageSeconds = (now.getTime() - authDate.getTime()) / 1000;
@@ -74,14 +93,13 @@ export function verifyTelegramInitData(
     );
   }
 
-  const rawUser = parameters.get('user');
-  if (!rawUser) {
+  if (!parsed.user) {
     throw new AppError('TELEGRAM_USER_MISSING', 'Telegram не передал данные пользователя', 401);
   }
 
   let parsedUser: z.infer<typeof telegramUserSchema>;
   try {
-    parsedUser = telegramUserSchema.parse(JSON.parse(rawUser));
+    parsedUser = telegramUserSchema.parse(parsed.user);
   } catch {
     throw new AppError('TELEGRAM_USER_INVALID', 'Некорректные данные пользователя Telegram', 401);
   }
@@ -99,7 +117,7 @@ export function verifyTelegramInitData(
         : { allowsWriteToPm: parsedUser.allows_write_to_pm }),
     },
     authDate,
-    ...(parameters.get('query_id') ? { queryId: parameters.get('query_id')! } : {}),
-    ...(parameters.get('start_param') ? { startParam: parameters.get('start_param')! } : {}),
+    ...(parsed.query_id ? { queryId: parsed.query_id } : {}),
+    ...(parsed.start_param ? { startParam: parsed.start_param } : {}),
   };
 }

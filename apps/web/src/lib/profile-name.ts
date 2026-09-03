@@ -1,3 +1,5 @@
+import { isRussianNameComponent } from '@cpi/shared';
+
 export interface ProfileNameParts {
   lastName: string;
   firstName: string;
@@ -24,4 +26,25 @@ export function combineFullName(parts: ProfileNameParts): string {
     .map(normalizeNamePart)
     .filter(Boolean)
     .join(' ');
+}
+
+const FIELD_LABELS: Record<keyof ProfileNameParts, string> = {
+  lastName: 'Фамилия',
+  firstName: 'Имя',
+  middleName: 'Отчество',
+};
+
+/**
+ * Те же правила, что и на сервере: CRM заводит участника только по трём частям
+ * русскими буквами. Проверка до отправки формы избавляет от неинформативной
+ * ошибки валидации в ответе.
+ */
+export function validateFullName(parts: ProfileNameParts): string | null {
+  const invalid = (Object.keys(FIELD_LABELS) as (keyof ProfileNameParts)[]).filter((field) => {
+    const value = normalizeNamePart(parts[field]);
+    return value.length === 0 || !isRussianNameComponent(value);
+  });
+  if (invalid.length === 0) return null;
+  const names = invalid.map((field) => FIELD_LABELS[field].toLowerCase());
+  return `Впишите ${names.join(', ')} русскими буквами, без цифр и сокращений`;
 }

@@ -1,43 +1,80 @@
 'use client';
 
 import Image from 'next/image';
-import { useEffect, useState } from 'react';
+import { AnimatePresence, m } from 'motion/react';
+import { useCallback, useEffect, useState } from 'react';
 import { Button, Card, Spinner } from '@cpi/ui';
 import { api } from '../lib/api';
+import { parseInternalAppLink } from '../lib/app-link';
 import { NOVOSIBIRSK_LABEL, formatNovosibirskDateTime } from '../lib/dates';
+import { getMessengerAdapter } from '../lib/messenger-adapter';
 import type { EventItem } from '../lib/types';
-import { ArrowIcon, CalendarIcon, FilesIcon, UploadIcon, UserIcon } from './icons';
+import { ArrowIcon, CalendarIcon, HistoryIcon, HomeIcon, QrIcon, UploadIcon } from './icons';
 import { CatAssistant } from './cat-assistant';
 import { EventSubmissions } from './event-submissions';
+import { EventRequestPanel } from './event-request-panel';
 import { EventsView } from './events-view';
+import { EntityActionDock, EntityBackButton } from './entity-action-dock';
 import { MineView } from './mine-view';
 import { ProfileView } from './profile-view';
+import { ProjectsView } from './projects-view';
 import { useSession } from './session-provider';
 import { SubmissionSheet } from './submission-sheet';
+import {
+  HistoryView,
+  PendingWalletIntentBanner,
+  StoreNavigationButton,
+  StoreView,
+  WalletHome,
+  WalletQrSheet,
+  type WalletDestination,
+  type WalletQrMode,
+} from './wallet-views';
+import { WalletProgramProvider } from './wallet-program-context';
+import { WalletMotionProvider } from './wallet-motion-provider';
+import { CardPackageFrame, RichHtml } from './rich-html';
 
-type Tab = 'events' | 'mine' | 'profile';
+type Tab = WalletDestination;
 
 export function MiniApp() {
   const { user, loading, error, online } = useSession();
-  const [tab, setTab] = useState<Tab>('events');
+  const [tab, setTab] = useState<Tab>('home');
   const [selectedEvent, setSelectedEvent] = useState<EventItem | null>(null);
   const [compose, setCompose] = useState(false);
   const [directEvent, setDirectEvent] = useState<EventItem | null>(null);
   const [submissionsRevision, setSubmissionsRevision] = useState(0);
+  const [qrMode, setQrMode] = useState<WalletQrMode | null>(null);
+  const [storeProductKey, setStoreProductKey] = useState<string | null>(null);
+  const [focusLeaderId, setFocusLeaderId] = useState(false);
 
   useEffect(() => {
-    const requestedTab = new URLSearchParams(window.location.search).get('tab');
-    if (requestedTab === 'mine' || requestedTab === 'profile') setTab(requestedTab);
+    const startParameter = getMessengerAdapter()?.getStartParameter();
+    const requestedTab =
+      new URLSearchParams(window.location.search).get('tab') ??
+      (startParameter?.startsWith('tab_') ? startParameter.slice(4) : null);
+    if (
+      requestedTab === 'home' ||
+      requestedTab === 'events' ||
+      requestedTab === 'projects' ||
+      requestedTab === 'mine' ||
+      requestedTab === 'profile' ||
+      requestedTab === 'store' ||
+      requestedTab === 'history'
+    ) {
+      setTab(requestedTab);
+    }
   }, []);
 
   useEffect(() => {
     if (!user) return;
     const parameters = new URLSearchParams(window.location.search);
     const queryEvent = parameters.get('event');
-    const startParameter = window.Telegram?.WebApp.initDataUnsafe?.start_param;
+    const startParameter = getMessengerAdapter(user.messengerProvider)?.getStartParameter();
     const startEvent = startParameter?.startsWith('event_')
       ? startParameter.slice(6)
-      : startParameter;
+      : startParameter && !/^(?:tab|post|product)_/u.test(startParameter)
+        ? startParameter
+        : undefined;
     const key = queryEvent || startEvent;
     if (!key) return;
     void api<EventItem>(`/events/${encodeURIComponent(key)}`)
@@ -48,23 +85,95 @@ export function MiniApp() {
       .catch(() => undefined);
   }, [user]);
 
-  const openEvent = (event: EventItem) => {
+  const openEvent = useCallback((event: EventItem) => {
     setSelectedEvent(event);
-    const recent = JSON.parse(localStorage.getItem('recent-events') ?? '[]') as string[];
-    localStorage.setItem(
-      'recent-events',
-      JSON.stringify([event.id, ...recent.filter((id) => id !== event.id)].slice(0, 5)),
-    );
-  };
+    try {
+      const stored = window.localStorage.getItem('recent-events');
+      const parsed: unknown = stored ? JSON.parse(stored) : [];
+      const recent = Array.isArray(parsed)
+        ? parsed.filter((id): id is string => typeof id === 'string')
+        : [];
+      window.localStorage.setItem(
+        'recent-events',
+        JSON.stringify([event.id, ...recent.filter((id) => id !== event.id)].slice(0, 5)),
+      );
+    } catch {
+      // Restricted WebViews may deny storage; opening an event must still work.
+    }
+  }, []);
+
+  const openLeaderIdRegistration = useCallback(() => {
+    setCompose(false);
+    setSelectedEvent(null);
+    setDirectEvent(null);
+    setTab('home');
+    setFocusLeaderId(true);
+  }, []);
+
+  useEffect(() => {
+    if (!focusLeaderId || tab !== 'home' || selectedEvent) return;
+    let frame = 0;
+    let attempts = 0;
+    const focusTarget = () => {
+      const target = document.getElementById('leader-id-catalyst');
+      if (!target && attempts < 60) {
+        attempts += 1;
+        frame = window.requestAnimationFrame(focusTarget);
+        return;
+      }
+      target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      target?.focus({ preventScroll: true });
+      setFocusLeaderId(false);
+    };
+    frame = window.requestAnimationFrame(focusTarget);
+    return () => window.cancelAnimationFrame(frame);
+  }, [focusLeaderId, selectedEvent, tab]);
+
+  const openInternalLink = useCallback(
+    (href: string): boolean => {
+      const target = parseInternalAppLink(href, window.location.origin);
+      if (!target) return false;
+      if (target.destination === 'event') {
+        setTab('events');
+        void api<EventItem>(`/events/${encodeURIComponent(target.key)}`)
+          .then(openEvent)
+          .catch(() => setSelectedEvent(null));
+        return true;
+      }
+      if (target.destination === 'product') {
+        setStoreProductKey(target.key);
+        setSelectedEvent(null);
+        setTab('store');
+        return true;
+      }
+      setSelectedEvent(null);
+      setTab(target.destination);
+      return true;
+    },
+    [openEvent],
+  );
+
+  useEffect(() => {
+    const handleAppLink = (event: Event) => {
+      const customEvent = event as CustomEvent<{ href?: unknown }>;
+      if (typeof customEvent.detail?.href !== 'string') return;
+      if (openInternalLink(customEvent.detail.href)) customEvent.preventDefault();
+    };
+    window.addEventListener('cpi:app-link', handleAppLink);
+    return () => window.removeEventListener('cpi:app-link', handleAppLink);
+  }, [openInternalLink]);
 
   if (loading) {
     return (
-      <main className="center-state cat-center-state">
+      <main
+        className="center-state cat-center-state wallet-auth-state"
+        aria-busy="true"
+        aria-label="Авторизация"
+      >
         <CatAssistant
           mood="talk"
           title="Кот подключается"
-          message="Секунду — проверяю безопасный вход через Telegram и готовлю мероприятия."
-          live
+          message="Секунду — проверяю безопасный вход через мессенджер и готовлю мероприятия."
         />
         <Spinner label="Авторизация" />
       </main>
@@ -72,11 +181,11 @@ export function MiniApp() {
   }
   if (error || !user) {
     return (
-      <main className="center-state error-state cat-center-state">
+      <main className="center-state error-state cat-center-state wallet-auth-state" role="alert">
         <CatAssistant
           mood="sleep"
           title="Связь потерялась"
-          message={error ?? 'Откройте приложение из Telegram-бота — так я смогу вас узнать.'}
+          message={error ?? 'Откройте приложение из Telegram или MAX — так я смогу вас узнать.'}
         />
         <h1>Не удалось открыть приложение</h1>
         <Button type="button" className="primary-button" onClick={() => window.location.reload()}>
@@ -97,171 +206,392 @@ export function MiniApp() {
   }
 
   return (
-    <main className="app-shell">
-      {!online ? (
-        <div className="offline-banner">Нет сети. Загрузка продолжится после подключения.</div>
-      ) : null}
-      {selectedEvent ? (
-        <EventDetail
-          event={selectedEvent}
-          onBack={() => {
-            setSelectedEvent(null);
-            setDirectEvent(null);
-          }}
-          onAdd={() => setCompose(true)}
-          submissionsRevision={submissionsRevision}
-        />
-      ) : tab === 'events' ? (
-        <EventsView onSelect={openEvent} initialEvent={directEvent} />
-      ) : tab === 'mine' ? (
-        <MineView />
-      ) : (
-        <ProfileView />
-      )}
+    <WalletMotionProvider>
+      <WalletProgramProvider>
+        <main className={`app-shell wallet-app${tab === 'profile' ? ' wallet-app--profile' : ''}`}>
+          {!online ? (
+            <div className="offline-banner">Нет сети. Загрузка продолжится после подключения.</div>
+          ) : null}
+          <PendingWalletIntentBanner />
+          <AnimatePresence mode="wait" initial={false}>
+            <m.div
+              className="wallet-view-motion"
+              key={selectedEvent ? `event:${selectedEvent.id}` : tab}
+              initial={{ opacity: 0, x: 14 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -10 }}
+              transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+            >
+              {selectedEvent ? (
+                <EventDetail
+                  event={selectedEvent}
+                  actionDockHidden={compose}
+                  onBack={() => {
+                    setSelectedEvent(null);
+                    setDirectEvent(null);
+                  }}
+                  onAdd={() => setCompose(true)}
+                  onParticipated={() =>
+                    setSelectedEvent((current) =>
+                      current ? { ...current, isParticipant: true } : current,
+                    )
+                  }
+                  onOpenLeaderId={openLeaderIdRegistration}
+                  submissionsRevision={submissionsRevision}
+                  onOpenInternalLink={openInternalLink}
+                />
+              ) : tab === 'home' ? (
+                <WalletHome
+                  user={user}
+                  onNavigate={setTab}
+                  onOpenQr={setQrMode}
+                  onOpenEvent={openEvent}
+                  onOpenInternalLink={openInternalLink}
+                />
+              ) : tab === 'events' ? (
+                <EventsView onSelect={openEvent} initialEvent={directEvent} />
+              ) : tab === 'mine' ? (
+                <MineView />
+              ) : tab === 'projects' ? (
+                <ProjectsView />
+              ) : tab === 'store' ? (
+                <StoreView
+                  initialProductKey={storeProductKey}
+                  onInitialProductHandled={() => setStoreProductKey(null)}
+                  onOpenInternalLink={openInternalLink}
+                />
+              ) : tab === 'history' ? (
+                <HistoryView />
+              ) : (
+                <ProfileView onBack={() => setTab('home')} />
+              )}
+            </m.div>
+          </AnimatePresence>
 
-      {user.roles.some((role) => role === 'admin' || role === 'superadmin') && tab === 'profile' ? (
-        <a href="/admin" className="admin-link">
-          Открыть административную панель <ArrowIcon />
-        </a>
-      ) : null}
+          {user.roles.some((role) => role === 'admin' || role === 'superadmin') &&
+          tab === 'profile' ? (
+            <a href="/admin" className="admin-link">
+              Открыть административную панель <ArrowIcon />
+            </a>
+          ) : null}
 
-      {!selectedEvent ? (
-        <nav className="bottom-nav" aria-label="Основная навигация">
-          <button
-            type="button"
-            className={tab === 'events' ? 'active' : ''}
-            onClick={() => setTab('events')}
-          >
-            <CalendarIcon />
-            <span>Мероприятия</span>
-          </button>
-          <button
-            type="button"
-            className={tab === 'mine' ? 'active' : ''}
-            onClick={() => setTab('mine')}
-          >
-            <FilesIcon />
-            <span>Мои материалы</span>
-          </button>
-          <button
-            type="button"
-            className={tab === 'profile' ? 'active' : ''}
-            onClick={() => setTab('profile')}
-          >
-            <UserIcon />
-            <span>Профиль</span>
-          </button>
-        </nav>
-      ) : null}
+          {!selectedEvent ? (
+            <nav className="bottom-nav" aria-label="Основная навигация">
+              <m.button
+                whileTap={{ scale: 0.92 }}
+                type="button"
+                className={tab === 'home' ? 'active' : ''}
+                onClick={() => setTab('home')}
+              >
+                <HomeIcon />
+                <span>Главная</span>
+              </m.button>
+              <m.button
+                whileTap={{ scale: 0.92 }}
+                type="button"
+                className={tab === 'events' ? 'active' : ''}
+                onClick={() => setTab('events')}
+              >
+                <CalendarIcon />
+                <span>События</span>
+              </m.button>
+              <m.button
+                whileTap={{ scale: 0.9, rotate: -4 }}
+                type="button"
+                className="bottom-nav-qr"
+                aria-label="Открыть QR"
+                onClick={() => setQrMode('menu')}
+              >
+                <span>
+                  <QrIcon />
+                </span>
+                <small>QR</small>
+              </m.button>
+              <StoreNavigationButton active={tab === 'store'} onClick={() => setTab('store')} />
+              <m.button
+                whileTap={{ scale: 0.92 }}
+                type="button"
+                className={tab === 'history' ? 'active' : ''}
+                onClick={() => setTab('history')}
+              >
+                <HistoryIcon />
+                <span>История</span>
+              </m.button>
+            </nav>
+          ) : null}
 
-      {selectedEvent && compose ? (
-        <SubmissionSheet
-          event={selectedEvent}
-          onClose={() => setCompose(false)}
-          onSuccess={() => setSubmissionsRevision((revision) => revision + 1)}
-        />
-      ) : null}
-    </main>
+          <AnimatePresence>
+            {qrMode ? <WalletQrSheet initialMode={qrMode} onClose={() => setQrMode(null)} /> : null}
+          </AnimatePresence>
+
+          <AnimatePresence>
+            {selectedEvent && compose ? (
+              <SubmissionSheet
+                event={selectedEvent}
+                onClose={() => setCompose(false)}
+                onSuccess={() => {
+                  setSubmissionsRevision((revision) => revision + 1);
+                  setSelectedEvent((current) =>
+                    current ? { ...current, isParticipant: true } : current,
+                  );
+                }}
+              />
+            ) : null}
+          </AnimatePresence>
+        </main>
+      </WalletProgramProvider>
+    </WalletMotionProvider>
   );
 }
 
 function EventDetail({
   event,
+  actionDockHidden,
   onBack,
   onAdd,
+  onParticipated,
+  onOpenLeaderId,
   submissionsRevision,
+  onOpenInternalLink,
 }: {
   event: EventItem;
+  actionDockHidden: boolean;
   onBack: () => void;
   onAdd: () => void;
+  onParticipated: () => void;
+  onOpenLeaderId: () => void;
   submissionsRevision: number;
+  onOpenInternalLink: (href: string) => boolean;
 }) {
+  const [participating, setParticipating] = useState(false);
+  const [participationError, setParticipationError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const previousRootOverscroll = root.style.overscrollBehaviorY;
+    root.style.overscrollBehaviorY = 'none';
+    return () => {
+      root.style.overscrollBehaviorY = previousRootOverscroll;
+    };
+  }, []);
+
+  async function participate() {
+    if (participating || event.isParticipant) return;
+    setParticipating(true);
+    setParticipationError(null);
+    try {
+      await api<{ joined: boolean; isParticipant: true }>(`/events/${event.id}/participate`, {
+        method: 'POST',
+      });
+      onParticipated();
+      getMessengerAdapter()?.notify('success');
+    } catch (caught) {
+      setParticipationError(
+        caught instanceof Error ? caught.message : 'Не удалось зарегистрировать участие',
+      );
+      getMessengerAdapter()?.notify('error');
+    } finally {
+      setParticipating(false);
+    }
+  }
+
   return (
-    <section className="screen event-detail">
-      <button className="text-button back-button" type="button" onClick={onBack}>
-        ← Мероприятия
-      </button>
-      {event.coverUrl ? (
+    <section
+      className={`screen event-detail wallet-event-detail${event.cardPackageId ? ' wallet-event-detail--package' : ''}${event.leaderIdRegistrationActive && event.leaderIdEventId && event.leaderIdRegistrationOpen ? ' wallet-event-detail--leader-id-registration' : ''}`}
+    >
+      {!actionDockHidden ? (
+        <>
+          <EntityBackButton label="Мероприятия" onClick={onBack} />
+          <EntityActionDock
+            className="entity-action-dock--event"
+            label="Мероприятие"
+            detail={event.title}
+          >
+            <Button
+              className="entity-action-dock__secondary"
+              disabled={participating || event.isParticipant}
+              onClick={() => void participate()}
+              type="button"
+            >
+              {event.isParticipant
+                ? 'Вы участвуете'
+                : participating
+                  ? 'Подтверждаем…'
+                  : 'Участвовать'}
+            </Button>
+            <Button
+              className="entity-action-dock__primary"
+              type="button"
+              onClick={onAdd}
+              disabled={!event.acceptsUploads}
+            >
+              <UploadIcon />
+              {event.acceptsUploads ? 'Отправить артефакт' : 'Приём закрыт'}
+            </Button>
+          </EntityActionDock>
+        </>
+      ) : null}
+      {event.cardPackageId ? (
+        <div className="event-custom-design">
+          <CardPackageFrame
+            packageId={event.cardPackageId}
+            title={`Оформление мероприятия: ${event.title}`}
+            interactive
+            fullscreen
+            onAction={onAdd}
+            onLink={onOpenInternalLink}
+          />
+        </div>
+      ) : event.cardHtml ? (
+        <div className="event-custom-design">
+          <RichHtml html={event.cardHtml} onAction={onAdd} onLink={onOpenInternalLink} />
+        </div>
+      ) : event.coverUrl ? (
         <img src={event.coverUrl} alt="" className="event-cover" />
       ) : (
         <div className="event-cover placeholder">
           <span className="event-cover-cat">
-            <Image src="/cats/cat-4.svg" alt="" width={320} height={320} unoptimized />
+            <Image src="/cats/cat-4-pink.svg" alt="" width={320} height={320} unoptimized />
           </span>
           <span>Материалы события</span>
         </div>
       )}
-      <div className="event-detail-heading">
-        <div>
-          <span className={`status-pill ${event.acceptsUploads ? 'active' : ''}`}>
-            {event.acceptsUploads ? 'Принимает материалы' : 'Приём закрыт'}
-          </span>
-          <span className="event-code">{event.shortCode}</span>
+      <div className="event-detail-content">
+        <div className="event-detail-heading">
+          <div>
+            <span className={`status-pill ${event.acceptsUploads ? 'active' : ''}`}>
+              {event.acceptsUploads ? 'Принимает материалы' : 'Приём закрыт'}
+            </span>
+            <span className="event-code">{event.shortCode}</span>
+          </div>
+          <h1>{event.title}</h1>
+          {event.descriptionFormat === 'html' && event.description ? (
+            <RichHtml
+              html={event.description}
+              className="event-rich-description"
+              onLink={onOpenInternalLink}
+            />
+          ) : (
+            <p>{event.description}</p>
+          )}
         </div>
-        <h1>{event.title}</h1>
-        <p>{event.description}</p>
-      </div>
-      <EventSubmissions eventId={event.id} refreshRevision={submissionsRevision} />
-      <Card className="detail-grid">
-        <div>
-          <span>Начало</span>
-          <strong>{formatNovosibirskDateTime(event.startsAt)}</strong>
+        <Card className="event-participation-card">
+          <div>
+            <strong>{event.isParticipant ? 'Вы участвуете' : 'Хотите участвовать?'}</strong>
+            <span>
+              {event.isParticipant
+                ? 'Вы добавлены в список участников Catalyst.'
+                : 'Подтвердите внутреннее участие в Catalyst одной кнопкой. Если событие требует Leader-ID, официальная регистрация выполняется отдельным блоком ниже.'}
+            </span>
+          </div>
+          <Button
+            className="primary-button"
+            disabled={participating || event.isParticipant}
+            onClick={() => void participate()}
+            type="button"
+          >
+            {event.isParticipant
+              ? 'Участие подтверждено'
+              : participating
+                ? 'Подтверждаем…'
+                : 'Участвовать'}
+          </Button>
+        </Card>
+        {participationError ? <div className="notice error">{participationError}</div> : null}
+        {event.leaderIdRegistrationActive && event.leaderIdEventId ? (
+          <Card
+            className={`event-registration-guide${event.leaderIdRegistrationOpen ? '' : ' event-registration-guide--closed'}`}
+          >
+            <span className="event-registration-guide__mark" aria-hidden="true">
+              ID
+            </span>
+            <div className="event-registration-guide__copy">
+              <span>Регистрация на мероприятие</span>
+              <h2>Через Leader-ID</h2>
+              <p>
+                {event.leaderIdRegistrationOpen
+                  ? 'На главной подключите свой Leader-ID и нажмите «Подключиться к Catalyst». Мы отправим заявку на это и остальные активные мероприятия автоматически — открывать каждое отдельно не нужно.'
+                  : 'Приём заявок через Leader-ID на это мероприятие сейчас закрыт. Когда регистрация откроется, действие появится здесь.'}
+              </p>
+              {event.leaderIdRegistrationOpen ? (
+                <small>Если аккаунта ещё нет, там же есть ссылка и короткая инструкция.</small>
+              ) : null}
+            </div>
+            {event.leaderIdRegistrationOpen ? (
+              <Button
+                className="event-registration-guide__button"
+                type="button"
+                onClick={onOpenLeaderId}
+              >
+                Перейти к регистрации
+                <ArrowIcon />
+              </Button>
+            ) : null}
+          </Card>
+        ) : null}
+        <EventSubmissions eventId={event.id} refreshRevision={submissionsRevision} />
+        {event.acceptsRequests ? <EventRequestPanel eventId={event.id} /> : null}
+        <Card className="detail-grid">
+          <div>
+            <span>Начало</span>
+            <strong>{formatNovosibirskDateTime(event.startsAt)}</strong>
+          </div>
+          <div>
+            <span>Окончание</span>
+            <strong>{formatNovosibirskDateTime(event.endsAt)}</strong>
+          </div>
+          <div>
+            <span>Приём материалов с</span>
+            <strong>{formatNovosibirskDateTime(event.acceptUploadsFrom)}</strong>
+          </div>
+          <div>
+            <span>Приём материалов до</span>
+            <strong>{formatNovosibirskDateTime(event.acceptUploadsUntil)}</strong>
+          </div>
+          <div>
+            <span>Место</span>
+            <strong>{[event.venue, event.city].filter(Boolean).join(', ') || 'Онлайн'}</strong>
+          </div>
+          <div>
+            <span>Организатор</span>
+            <strong>{event.organizer}</strong>
+          </div>
+          <div>
+            <span>Лимит файла</span>
+            <strong>{Math.round(event.maxFileSizeBytes / 1024 ** 2)} МБ</strong>
+          </div>
+          <div>
+            <span>Часовой пояс</span>
+            <strong>{NOVOSIBIRSK_LABEL}</strong>
+          </div>
+        </Card>
+        <CatAssistant
+          mood={event.acceptsUploads ? 'upload' : 'sleep'}
+          compact
+          message={
+            event.acceptsUploads
+              ? 'Можно отправить файл, ссылку или заметку. Черновик сохранится, если отвлечётесь.'
+              : 'Приём уже завершён. Все ваши прежние отправки показаны выше.'
+          }
+        />
+        {event.tags.length ? (
+          <div className="tag-row">
+            {event.tags.map((tag) => (
+              <span key={tag}>#{tag}</span>
+            ))}
+          </div>
+        ) : null}
+        <div className="event-action-inline">
+          <Button
+            className="primary-button"
+            type="button"
+            onClick={onAdd}
+            disabled={!event.acceptsUploads}
+          >
+            <UploadIcon />
+            {event.acceptsUploads ? 'Добавить артефакт' : 'Приём материалов закрыт'}
+          </Button>
         </div>
-        <div>
-          <span>Окончание</span>
-          <strong>{formatNovosibirskDateTime(event.endsAt)}</strong>
-        </div>
-        <div>
-          <span>Приём материалов с</span>
-          <strong>{formatNovosibirskDateTime(event.acceptUploadsFrom)}</strong>
-        </div>
-        <div>
-          <span>Приём материалов до</span>
-          <strong>{formatNovosibirskDateTime(event.acceptUploadsUntil)}</strong>
-        </div>
-        <div>
-          <span>Место</span>
-          <strong>{[event.venue, event.city].filter(Boolean).join(', ') || 'Онлайн'}</strong>
-        </div>
-        <div>
-          <span>Организатор</span>
-          <strong>{event.organizer}</strong>
-        </div>
-        <div>
-          <span>Лимит файла</span>
-          <strong>{Math.round(event.maxFileSizeBytes / 1024 ** 2)} МБ</strong>
-        </div>
-        <div>
-          <span>Часовой пояс</span>
-          <strong>{NOVOSIBIRSK_LABEL}</strong>
-        </div>
-      </Card>
-      <CatAssistant
-        mood={event.acceptsUploads ? 'upload' : 'sleep'}
-        compact
-        message={
-          event.acceptsUploads
-            ? 'Можно отправить файл, ссылку или заметку. Черновик сохранится, если отвлечётесь.'
-            : 'Приём уже завершён. Все ваши прежние отправки показаны выше.'
-        }
-      />
-      {event.tags.length ? (
-        <div className="tag-row">
-          {event.tags.map((tag) => (
-            <span key={tag}>#{tag}</span>
-          ))}
-        </div>
-      ) : null}
-      <div className="sticky-action">
-        <Button
-          className="primary-button"
-          type="button"
-          onClick={onAdd}
-          disabled={!event.acceptsUploads}
-        >
-          <UploadIcon />
-          {event.acceptsUploads ? 'Добавить артефакт' : 'Приём материалов закрыт'}
-        </Button>
       </div>
     </section>
   );

@@ -26,4 +26,13 @@ describe('profile registration validation', () => {
       }),
     ).toThrow(/отчество/i);
   });
+
+  // CRM заводит участника только по кириллическому ФИО из трёх частей: всё
+  // остальное доезжает до неё и повисает в очереди ручного разбора.
+  it.each(['Ivanov Ivan Ivanovich', 'Иванов Иван Иванович Оглы', 'Иванов И. И.'])(
+    'rejects %s as unusable for CRM',
+    (fullName) => {
+      expect(() => profileUpdateSchema.parse({ ...baseProfile, fullName })).toThrow(/отчество/i);
+    },
+  );
 });

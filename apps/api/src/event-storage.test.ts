@@ -9,56 +9,49 @@ import { describe, expect, it, vi } from 'vitest';
 import { purgeArtifactStorage, purgeEventStorage, purgeStoredObjects } from './event-storage';
 
 describe('event storage purge', () => {
-  it('aborts multipart uploads and deletes every object under the exact event prefix', async () => {
+  it('aborts multipart uploads and deletes every object under the given prefixes', async () => {
     const listedMultipart = new Set<string>();
     const listedObjects = new Set<string>();
     const aborted: string[] = [];
     const deleted: string[] = [];
     const send = vi.fn(async (command: unknown) => {
       if (command instanceof ListMultipartUploadsCommand) {
-        const bucket = command.input.Bucket!;
-        expect(command.input.Prefix).toBe('event-id/');
-        if (listedMultipart.has(bucket)) return { Uploads: [] };
-        listedMultipart.add(bucket);
-        return { Uploads: [{ Key: 'event-id/incomplete', UploadId: `${bucket}-upload` }] };
+        const prefix = command.input.Prefix!;
+        expect(command.input.Bucket).toBe('shared');
+        if (listedMultipart.has(prefix)) return { Uploads: [] };
+        listedMultipart.add(prefix);
+        return { Uploads: [{ Key: `${prefix}incomplete`, UploadId: `${prefix}upload` }] };
       }
       if (command instanceof AbortMultipartUploadCommand) {
-        aborted.push(`${command.input.Bucket}:${command.input.UploadId}`);
+        aborted.push(String(command.input.UploadId));
         return {};
       }
       if (command instanceof ListObjectsV2Command) {
-        const bucket = command.input.Bucket!;
-        expect(command.input.Prefix).toBe('event-id/');
-        if (listedObjects.has(bucket)) return { Contents: [] };
-        listedObjects.add(bucket);
-        return {
-          Contents: [{ Key: 'event-id/one' }, { Key: 'event-id/two' }],
-        };
+        const prefix = command.input.Prefix!;
+        if (listedObjects.has(prefix)) return { Contents: [] };
+        listedObjects.add(prefix);
+        return { Contents: [{ Key: `${prefix}one` }, { Key: `${prefix}two` }] };
       }
       if (command instanceof DeleteObjectsCommand) {
-        deleted.push(
-          ...(command.input.Delete?.Objects ?? []).map(
-            (object) => `${command.input.Bucket}:${object.Key}`,
-          ),
-        );
+        deleted.push(...(command.input.Delete?.Objects ?? []).map((object) => String(object.Key)));
         return {};
       }
       throw new Error('Unexpected S3 command');
     });
 
-    const result = await purgeEventStorage(
-      { send } as unknown as S3Client,
-      ['private', 'quarantine', 'private'],
-      'event-id',
-    );
+    const result = await purgeEventStorage({ send } as unknown as S3Client, 'shared', [
+      'locker/incoming/event-id/',
+      'locker/exports/event-id/',
+      'locker/incoming/event-id/',
+    ]);
 
     expect(result).toEqual({ deletedObjects: 4, abortedMultipartUploads: 2 });
-    expect(aborted).toEqual(['private:private-upload', 'quarantine:quarantine-upload']);
+    expect(aborted).toEqual(['locker/incoming/event-id/upload', 'locker/exports/event-id/upload']);
     expect(deleted).toEqual([
-      'private:event-id/one',
-      'private:event-id/two',
-      'quarantine:event-id/one',
-      'quarantine:event-id/two',
+      'locker/incoming/event-id/one',
+      'locker/incoming/event-id/two',
+      'locker/exports/event-id/one',
+      'locker/exports/event-id/two',
     ]);
   });
 
@@ -66,16 +59,16 @@ describe('event storage purge', () => {
     const send = vi.fn(async (command: unknown) => {
       if (command instanceof ListMultipartUploadsCommand) return { Uploads: [] };
       if (command instanceof ListObjectsV2Command) {
-        return { Contents: [{ Key: 'event-id/file' }] };
+        return { Contents: [{ Key: 'locker/incoming/event-id/file' }] };
       }
       if (command instanceof DeleteObjectsCommand) {
-        return { Errors: [{ Key: 'event-id/file', Code: 'AccessDenied' }] };
+        return { Errors: [{ Key: 'locker/incoming/event-id/file', Code: 'AccessDenied' }] };
       }
       throw new Error('Unexpected S3 command');
     });
 
     await expect(
-      purgeEventStorage({ send } as unknown as S3Client, ['private'], 'event-id'),
+      purgeEventStorage({ send } as unknown as S3Client, 'shared', ['locker/incoming/event-id/']),
     ).rejects.toThrow('AccessDenied');
   });
 
@@ -84,41 +77,37 @@ describe('event storage purge', () => {
     const deleted: string[] = [];
     const send = vi.fn(async (command: unknown) => {
       if (command instanceof AbortMultipartUploadCommand) {
-        aborted.push(`${command.input.Bucket}:${command.input.Key}:${command.input.UploadId}`);
+        aborted.push(`${command.input.Key}:${command.input.UploadId}`);
         return {};
       }
       if (command instanceof DeleteObjectsCommand) {
-        deleted.push(
-          ...(command.input.Delete?.Objects ?? []).map(
-            (object) => `${command.input.Bucket}:${object.Key}`,
-          ),
-        );
+        deleted.push(...(command.input.Delete?.Objects ?? []).map((object) => String(object.Key)));
         return {};
       }
       throw new Error('Unexpected S3 command');
     });
 
     const result = await purgeStoredObjects({ send } as unknown as S3Client, [
-      { bucket: 'private', key: 'event/submission/artifact' },
+      { bucket: 'shared', key: 'locker/artifacts/Событие/Иванов/Устав.pdf' },
       {
-        bucket: 'quarantine',
-        key: 'event/submission/artifact',
+        bucket: 'legacy',
+        key: 'locker/incoming/event/submission/artifact',
         uploadId: 'multipart-id',
       },
       {
-        bucket: 'quarantine',
-        key: 'event/submission/artifact',
+        bucket: 'legacy',
+        key: 'locker/incoming/event/submission/artifact',
         uploadId: 'multipart-id',
       },
-      { bucket: 'exports', key: 'event/export.zip' },
+      { bucket: 'shared', key: 'locker/exports/event/export.zip' },
     ]);
 
     expect(result).toEqual({ deletedObjects: 3, abortedMultipartUploads: 1 });
-    expect(aborted).toEqual(['quarantine:event/submission/artifact:multipart-id']);
+    expect(aborted).toEqual(['locker/incoming/event/submission/artifact:multipart-id']);
     expect(deleted).toEqual([
-      'private:event/submission/artifact',
-      'quarantine:event/submission/artifact',
-      'exports:event/export.zip',
+      'locker/artifacts/Событие/Иванов/Устав.pdf',
+      'locker/exports/event/export.zip',
+      'locker/incoming/event/submission/artifact',
     ]);
   });
 
@@ -133,12 +122,12 @@ describe('event storage purge', () => {
 
     await expect(
       purgeStoredObjects({ send } as unknown as S3Client, [
-        { bucket: 'quarantine', key: 'event/file', uploadId: 'already-gone' },
+        { bucket: 'legacy', key: 'locker/incoming/event/file', uploadId: 'already-gone' },
       ]),
     ).resolves.toEqual({ deletedObjects: 1, abortedMultipartUploads: 0 });
   });
 
-  it('cleans each artifact from both permanent and quarantine storage', async () => {
+  it('deletes an artifact by the key recorded in the database', async () => {
     const deleted: string[] = [];
     const send = vi.fn(async (command: unknown) => {
       if (command instanceof DeleteObjectsCommand) {
@@ -152,12 +141,10 @@ describe('event storage purge', () => {
       throw new Error('Unexpected S3 command');
     });
 
-    await purgeArtifactStorage(
-      { send } as unknown as S3Client,
-      ['private', 'quarantine'],
-      [{ bucket: 'private', objectKey: 'event/submission/file' }],
-    );
+    await purgeArtifactStorage({ send } as unknown as S3Client, [
+      { bucket: 'legacy', objectKey: 'locker/artifacts/Событие/Иванов/Устав.pdf' },
+    ]);
 
-    expect(deleted).toEqual(['private:event/submission/file', 'quarantine:event/submission/file']);
+    expect(deleted).toEqual(['legacy:locker/artifacts/Событие/Иванов/Устав.pdf']);
   });
 });

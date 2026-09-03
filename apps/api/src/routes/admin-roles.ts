@@ -8,7 +8,7 @@ import { writeAudit } from '../audit';
 import { serializeUser } from '../serializers';
 
 const roleChangeSchema = z.object({
-  role: z.enum(['admin', 'superadmin']),
+  role: z.literal('admin'),
   enabled: z.boolean(),
 });
 
@@ -17,8 +17,10 @@ const statusChangeSchema = z.object({
 });
 
 export const adminRoleRoutes: FastifyPluginAsync = async (app) => {
-  const readGuards = [app.requireAuth, app.requireSuperadmin];
-  const writeGuards = [app.requireAuth, app.requireCsrf, app.requireSuperadmin];
+  // Product policy has one operational administrator role. `superadmin` remains only as a
+  // backwards-compatible bootstrap alias and receives the same application capabilities.
+  const readGuards = [app.requireAuth, app.requireAdmin];
+  const writeGuards = [app.requireAuth, app.requireCsrf, app.requireAdmin];
 
   app.get(
     '/admin/admins',
@@ -48,13 +50,6 @@ export const adminRoleRoutes: FastifyPluginAsync = async (app) => {
       const body = roleChangeSchema.parse(request.body);
       const [target] = await app.db.select().from(users).where(eq(users.id, userId)).limit(1);
       if (!target) throw new AppError('USER_NOT_FOUND', 'Пользователь не найден', 404);
-      if (!body.enabled && userId === request.currentUser!.id && body.role === 'superadmin') {
-        throw new AppError(
-          'CANNOT_REVOKE_SELF',
-          'Нельзя снять собственную роль суперадминистратора',
-          409,
-        );
-      }
       if (body.enabled) await ensureUserRole(app.db, userId, body.role);
       else await revokeUserRole(app.db, userId, body.role);
       await writeAudit(request, {

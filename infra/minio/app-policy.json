@@ -4,11 +4,7 @@
     {
       "Effect": "Allow",
       "Action": ["s3:GetBucketLocation", "s3:ListBucket", "s3:ListBucketMultipartUploads"],
-      "Resource": [
-        "arn:aws:s3:::__QUARANTINE_BUCKET__",
-        "arn:aws:s3:::__PRIVATE_BUCKET__",
-        "arn:aws:s3:::__EXPORT_BUCKET__"
-      ]
+      "Resource": ["arn:aws:s3:::__BUCKET__"]
     },
     {
       "Effect": "Allow",
@@ -19,11 +15,7 @@
         "s3:AbortMultipartUpload",
         "s3:ListMultipartUploadParts"
       ],
-      "Resource": [
-        "arn:aws:s3:::__QUARANTINE_BUCKET__/*",
-        "arn:aws:s3:::__PRIVATE_BUCKET__/*",
-        "arn:aws:s3:::__EXPORT_BUCKET__/*"
-      ]
+      "Resource": ["arn:aws:s3:::__BUCKET__/*"]
     }
   ]
 }

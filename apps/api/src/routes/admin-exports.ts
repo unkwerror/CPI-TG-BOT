@@ -3,7 +3,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import type { FastifyPluginAsync } from 'fastify';
 import { artifacts, events, exportJobs, outboxEvents } from '@cpi/db';
-import { AppError, exportCreateSchema } from '@cpi/shared';
+import { AppError, exportCreateSchema, publicStorageUrl } from '@cpi/shared';
 import { writeAudit } from '../audit';
 import { invalidateEventExports } from '../export-storage';
 import { serializeExportJob } from '../serializers';
@@ -132,7 +132,7 @@ export const adminExportRoutes: FastifyPluginAsync = async (app) => {
       }
       const extension = job.kind === 'zip' ? 'zip' : job.kind;
       const url = await getSignedUrl(
-        app.s3Public,
+        app.s3,
         new GetObjectCommand({
           Bucket: job.bucket,
           Key: job.objectKey,
@@ -140,7 +140,10 @@ export const adminExportRoutes: FastifyPluginAsync = async (app) => {
         }),
         { expiresIn: app.config.PRESIGNED_URL_TTL_SECONDS },
       );
-      return { url, expiresInSeconds: app.config.PRESIGNED_URL_TTL_SECONDS };
+      return {
+        url: publicStorageUrl(url, app.config.S3_PUBLIC_BASE),
+        expiresInSeconds: app.config.PRESIGNED_URL_TTL_SECONDS,
+      };
     },
   );
 

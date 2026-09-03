@@ -4,7 +4,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { artifacts } from '@cpi/db';
-import { AppError } from '@cpi/shared';
+import { AppError, publicStorageUrl } from '@cpi/shared';
 import { requireCrmIntegration } from '../crm-integration-auth';
 
 const artifactParams = z.object({ artifactId: z.uuid() });
@@ -34,7 +34,7 @@ export const crmIntegrationRoutes: FastifyPluginAsync = async (app) => {
 
       const disposition = `attachment; filename*=UTF-8''${encodeURIComponent(artifact.displayName)}`;
       const url = await getSignedUrl(
-        app.s3Public,
+        app.s3,
         new GetObjectCommand({
           Bucket: artifact.bucket,
           Key: artifact.objectKey,
@@ -44,7 +44,10 @@ export const crmIntegrationRoutes: FastifyPluginAsync = async (app) => {
         }),
         { expiresIn: app.config.PRESIGNED_URL_TTL_SECONDS },
       );
-      return { url, expiresInSeconds: app.config.PRESIGNED_URL_TTL_SECONDS };
+      return {
+        url: publicStorageUrl(url, app.config.S3_PUBLIC_BASE),
+        expiresInSeconds: app.config.PRESIGNED_URL_TTL_SECONDS,
+      };
     },
   );
 };

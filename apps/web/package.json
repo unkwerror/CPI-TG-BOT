@@ -13,7 +13,11 @@
   "dependencies": {
     "@cpi/shared": "1.0.0",
     "@cpi/ui": "1.0.0",
+    "@types/qrcode": "^1.5.5",
+    "@zxing/browser": "^0.1.5",
+    "motion": "^12.23.12",
     "next": "^16.2.12",
+    "qrcode": "^1.5.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },

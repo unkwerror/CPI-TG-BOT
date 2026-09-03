@@ -44,6 +44,7 @@ describe('ZIP export streaming', () => {
       userId: 'user-id',
       fullName: 'Иван Иванов',
       telegramUserId: '123456789',
+      messengerIdentities: 'telegram:123456789',
       title: 'Полезный материал',
       text: 'Первая строка\nВторая строка',
       link: 'https://example.com/material',
@@ -76,7 +77,7 @@ describe('ZIP export streaming', () => {
       throw new Error('Unexpected S3 command');
     });
     const context = {
-      config: { S3_EXPORT_BUCKET: 'exports' },
+      config: { S3_BUCKET: 'shared' },
       s3: { send },
       logger: { warn: vi.fn() },
     } as unknown as WorkerContext;

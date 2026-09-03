@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Button, Card } from '@cpi/ui';
 import { api } from '../lib/api';
 import { formatNovosibirskDate, formatNovosibirskDateTime } from '../lib/dates';
+import { downloadMessengerFile, openExternalLink } from '../lib/messenger-adapter';
 import type { ArtifactItem, SubmissionItem } from '../lib/types';
 import { CatAssistant } from './cat-assistant';
 import { FilesIcon, LinkIcon } from './icons';
@@ -26,6 +27,8 @@ export function MineView() {
   const [selected, setSelected] = useState<SubmissionItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -41,26 +44,59 @@ export function MineView() {
 
   useEffect(() => {
     void load();
+  }, [load]);
+
+  const hasPendingItems = items.some((item) => ['draft', 'processing'].includes(item.status));
+
+  useEffect(() => {
+    if (!hasPendingItems) return;
     const timer = setInterval(() => {
-      if (items.some((item) => ['draft', 'processing'].includes(item.status))) void load();
+      void load();
     }, 5_000);
     return () => clearInterval(timer);
-  }, [load, items]);
+  }, [hasPendingItems, load]);
 
   const showDetails = async (submission: SubmissionItem) => {
-    const details = await api<SubmissionItem>(`/me/submissions/${submission.id}`);
-    setSelected({ ...submission, ...details });
+    setActionError(null);
+    try {
+      const details = await api<SubmissionItem>(`/me/submissions/${submission.id}`);
+      setSelected({ ...submission, ...details });
+    } catch (caught) {
+      setActionError(caught instanceof Error ? caught.message : 'Не удалось открыть отправку');
+    }
   };
 
   const download = async (artifact: ArtifactItem) => {
-    const result = await api<{ url: string }>(`/artifacts/${artifact.id}/download`);
-    window.location.assign(result.url);
+    setActionError(null);
+    setDownloadingId(artifact.id);
+    try {
+      const result = await api<{ url: string }>(`/artifacts/${artifact.id}/download`);
+      if (!downloadMessengerFile(result.url, artifact.displayName)) {
+        throw new Error('Ссылка на файл недоступна');
+      }
+    } catch (caught) {
+      setActionError(caught instanceof Error ? caught.message : 'Не удалось скачать файл');
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  const openSubmissionLink = (url: string) => {
+    setActionError(null);
+    if (!openExternalLink(url)) setActionError('Ссылка имеет неподдерживаемый формат');
   };
 
   if (selected) {
     return (
       <section className="screen">
-        <button className="text-button back-button" type="button" onClick={() => setSelected(null)}>
+        <button
+          className="text-button back-button"
+          type="button"
+          onClick={() => {
+            setSelected(null);
+            setActionError(null);
+          }}
+        >
           ← Все материалы
         </button>
         <header className="screen-header compact">
@@ -78,10 +114,19 @@ export function MineView() {
           }
         />
         {selected.text ? <Card className="submission-text">{selected.text}</Card> : null}
+        {actionError ? (
+          <div className="notice error" role="alert">
+            {actionError}
+          </div>
+        ) : null}
         {selected.link ? (
-          <a className="link-card" href={selected.link} target="_blank" rel="noreferrer">
+          <button
+            className="link-card"
+            type="button"
+            onClick={() => openSubmissionLink(selected.link!)}
+          >
             <LinkIcon /> {selected.link}
-          </a>
+          </button>
         ) : null}
         <div className="file-list">
           {selected.artifacts?.map((artifact) => (
@@ -96,8 +141,12 @@ export function MineView() {
                 {artifact.statusReason ? <small>{artifact.statusReason}</small> : null}
               </div>
               {artifact.status === 'ready' ? (
-                <Button type="button" onClick={() => void download(artifact)}>
-                  Скачать
+                <Button
+                  type="button"
+                  disabled={downloadingId === artifact.id}
+                  onClick={() => void download(artifact)}
+                >
+                  {downloadingId === artifact.id ? 'Открываем…' : 'Скачать'}
                 </Button>
               ) : null}
             </Card>
@@ -127,6 +176,11 @@ export function MineView() {
         }
       />
       {error ? <div className="notice error">{error}</div> : null}
+      {actionError ? (
+        <div className="notice error" role="alert">
+          {actionError}
+        </div>
+      ) : null}
       {loading ? (
         <div className="skeleton event-skeleton" />
       ) : items.length === 0 ? (

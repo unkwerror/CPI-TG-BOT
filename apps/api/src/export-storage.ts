@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { and, eq, inArray, isNotNull, ne, or } from 'drizzle-orm';
 import { exportJobs } from '@cpi/db';
-import type { ExportKind } from '@cpi/shared';
+import { exportObjectKey, type ExportKind } from '@cpi/shared';
 import { purgeStoredObjects, type EventStoragePurgeResult } from './event-storage';
 
 export interface ExportInvalidationResult extends EventStoragePurgeResult {
@@ -58,15 +58,21 @@ export async function invalidateEventExports(
   let purgeResult: EventStoragePurgeResult;
   try {
     purgeResult = await purgeStoredObjects(
-      app.s3Internal,
+      app.s3,
       jobs.flatMap((job) => {
         const generated = {
-          bucket: app.config.S3_EXPORT_BUCKET,
-          key: `${eventId}/${job.id}.${job.kind}`,
+          bucket: app.config.S3_BUCKET,
+          key: exportObjectKey(app.config.S3_PREFIX, {
+            eventId,
+            exportJobId: job.id,
+            kind: job.kind,
+          }),
         };
-        return job.bucket && job.objectKey
-          ? [generated, { bucket: job.bucket, key: job.objectKey }]
-          : [generated];
+        if (!job.objectKey) return [generated];
+        if (!job.bucket) {
+          throw new Error(`Export ${job.id} has object_key without its persisted bucket`);
+        }
+        return [generated, { bucket: job.bucket, key: job.objectKey }];
       }),
     );
   } catch (error) {

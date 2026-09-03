@@ -9,13 +9,15 @@ import type Redis from 'ioredis';
 export interface SessionData {
   id: string;
   userId: string;
+  messengerProvider?: 'telegram' | 'max';
+  messengerUserId?: string;
   csrfToken: string;
   createdAt: string;
 }
 
 export interface AuthenticatedUser {
   id: string;
-  telegramUserId: bigint;
+  telegramUserId: bigint | null;
   telegramUsername: string | null;
   fullName: string | null;
   organization: string | null;
@@ -31,8 +33,7 @@ declare module 'fastify' {
     config: ApiEnvironment;
     db: Database;
     redis: Redis;
-    s3Internal: S3Client;
-    s3Public: S3Client;
+    s3: S3Client;
     artifactQueue: Queue;
     exportQueue: Queue;
     requireAuth: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;

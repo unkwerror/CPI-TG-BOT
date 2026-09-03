@@ -5,9 +5,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { Card } from '@cpi/ui';
 import { api } from '../lib/api';
 import { formatNovosibirskDate } from '../lib/dates';
+import { richContentToText } from '../lib/rich-content';
 import type { EventItem } from '../lib/types';
 import { CatAssistant, type CatMood } from './cat-assistant';
 import { ArrowIcon, SearchIcon } from './icons';
+import { RichHtml } from './rich-html';
 
 function statusLabel(event: EventItem): string {
   if (event.acceptsUploads) return 'Принимает материалы';
@@ -28,7 +30,6 @@ export function EventsView({
   const [city, setCity] = useState('');
   const [format, setFormat] = useState('');
   const [status, setStatus] = useState('');
-  const [includePast, setIncludePast] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,7 +40,6 @@ export function EventsView({
       if (city) parameters.set('city', city);
       if (format) parameters.set('format', format);
       if (status) parameters.set('status', status);
-      if (includePast) parameters.set('includePast', 'true');
       setLoading(true);
       void api<{ items: EventItem[] }>(`/events?${parameters}`)
         .then((result) => {
@@ -50,7 +50,7 @@ export function EventsView({
         .finally(() => setLoading(false));
     }, 300);
     return () => clearTimeout(timer);
-  }, [query, city, format, status, includePast]);
+  }, [query, city, format, status]);
 
   const cities = useMemo(
     () => [...new Set(events.map((event) => event.city).filter(Boolean) as string[])].sort(),
@@ -64,9 +64,7 @@ export function EventsView({
     : events.length === 0
       ? {
           mood: 'sleep',
-          message: includePast
-            ? 'Ничего не нашёл. Попробуйте убрать фильтр или ввести короткий код события.'
-            : 'Ничего не нашёл. Прошедшие мероприятия скрыты — включите их галочкой выше.',
+          message: 'Ничего не нашёл. Попробуйте убрать фильтр или ввести короткий код события.',
         }
       : query
         ? {
@@ -79,12 +77,12 @@ export function EventsView({
           };
 
   return (
-    <section className="screen" aria-labelledby="events-title">
+    <section className="screen wallet-events-screen" aria-labelledby="events-title">
       <header className="screen-header events-hero">
         <div className="events-hero__title">
-          <p className="eyebrow">Сбор артефактов</p>
-          <h1 id="events-title">Ваши материалы — на месте</h1>
-          <p>Найдите мероприятие и передайте файлы, ссылку или заметку.</p>
+          <p className="eyebrow">Мероприятия</p>
+          <h1 id="events-title">События и возможности</h1>
+          <p>Выберите событие, узнайте условия и приложите материалы, пока открыт приём.</p>
         </div>
         <CatAssistant mood={assistant.mood} message={assistant.message} live />
       </header>
@@ -129,62 +127,85 @@ export function EventsView({
           <option value="published">Предстоящее</option>
           <option value="finished">Завершено</option>
         </select>
-        <label className="filter-toggle">
-          <input
-            type="checkbox"
-            checked={includePast}
-            onChange={(event) => setIncludePast(event.target.checked)}
-          />
-          Показать прошедшие
-        </label>
       </div>
 
       {error ? <div className="notice error">{error}</div> : null}
       {loading ? (
-        <div className="event-list" aria-label="Загрузка мероприятий">
+        <div
+          className="event-list"
+          role="status"
+          aria-live="polite"
+          aria-label="Загрузка мероприятий"
+        >
           {[1, 2, 3].map((item) => (
             <div className="skeleton event-skeleton" key={item} />
           ))}
         </div>
       ) : events.length === 0 ? (
         <div className="empty-state cat-empty-state">
-          <Image src="/cats/cat-5.svg" alt="" width={180} height={180} unoptimized />
+          <Image src="/cats/cat-5-pink.svg" alt="" width={180} height={180} unoptimized />
           <h2>Ничего не найдено</h2>
-          <p>
-            {includePast
-              ? 'Проверьте название или сбросьте фильтры.'
-              : 'Прошедшие мероприятия скрыты. Включите «Показать прошедшие» или сбросьте фильтры.'}
-          </p>
+          <p>Проверьте название или сбросьте фильтры.</p>
         </div>
       ) : (
-        <div className="event-list">
-          {events.map((event) => (
-            <button
-              key={event.id}
-              className="card-button"
-              type="button"
-              onClick={() => onSelect(event)}
-            >
-              <Card className="event-card">
-                <div className="event-card-top">
-                  <span className={`status-pill ${event.acceptsUploads ? 'active' : ''}`}>
-                    {statusLabel(event)}
-                  </span>
-                  <span className="event-code">{event.shortCode}</span>
+        <div className="event-list" aria-live="polite">
+          {events.map((event) => {
+            if (event.cardHtml) {
+              return (
+                <div
+                  key={event.id}
+                  className="card-button custom-card-shell"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Открыть мероприятие «${event.title}»`}
+                  onClick={() => onSelect(event)}
+                  onKeyDown={(keyboardEvent) => {
+                    if (keyboardEvent.key === 'Enter' || keyboardEvent.key === ' ') {
+                      keyboardEvent.preventDefault();
+                      onSelect(event);
+                    }
+                  }}
+                >
+                  <RichHtml html={event.cardHtml} onAction={() => onSelect(event)} />
                 </div>
-                <h2>{event.title}</h2>
-                <p className="event-meta">
-                  {formatNovosibirskDate(event.startsAt)}
-                  {event.city ? ` · ${event.city}` : ''}
-                </p>
-                <p className="event-description">{event.description ?? event.organizer}</p>
-                <div className="event-footer">
-                  <span>{event.organizer}</span>
-                  <ArrowIcon />
-                </div>
-              </Card>
-            </button>
-          ))}
+              );
+            }
+            return (
+              <button
+                key={event.id}
+                className="card-button"
+                type="button"
+                onClick={() => onSelect(event)}
+              >
+                <Card className={`event-card${event.acceptsUploads ? ' event-card--active' : ''}`}>
+                  <div className="event-card-top">
+                    <span className={`status-pill ${event.acceptsUploads ? 'active' : ''}`}>
+                      {statusLabel(event)}
+                    </span>
+                    <span className="event-code">{event.shortCode}</span>
+                  </div>
+                  <h2>{event.title}</h2>
+                  <p className="event-meta">
+                    {formatNovosibirskDate(event.startsAt)}
+                    {event.city ? ` · ${event.city}` : ''}
+                  </p>
+                  <p className="event-description">
+                    {event.description
+                      ? richContentToText(event.description, event.descriptionFormat)
+                      : event.organizer}
+                  </p>
+                  <div className="event-footer">
+                    <span>
+                      {event.leaderIdRegistrationActive && event.leaderIdEventId
+                        ? 'Регистрация через Leader-ID'
+                        : event.organizer}
+                    </span>
+                    <ArrowIcon />
+                  </div>
+                </Card>
+              </button>
+            );
+          })}
         </div>
       )}
     </section>

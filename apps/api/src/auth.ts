@@ -65,10 +65,16 @@ export async function createSession(
   app: Parameters<FastifyPluginAsync>[0],
   reply: FastifyReply,
   userId: string,
+  messenger: {
+    provider: 'telegram' | 'max';
+    externalUserId: string;
+  },
 ): Promise<SessionData> {
   const session: SessionData = {
     id: randomToken(),
     userId,
+    messengerProvider: messenger.provider,
+    messengerUserId: messenger.externalUserId,
     csrfToken: randomToken(24),
     createdAt: new Date().toISOString(),
   };
@@ -93,7 +99,7 @@ export const authPlugin: FastifyPluginAsync = fp(async (app) => {
     const bearerSession = authorization?.startsWith('Bearer ') ? authorization.slice(7) : undefined;
     const id = cookieSession ?? bearerSession;
     if (!id || id.length > 128) {
-      throw new AppError('AUTH_REQUIRED', 'Необходима авторизация через Telegram', 401);
+      throw new AppError('AUTH_REQUIRED', 'Необходима авторизация через мессенджер', 401);
     }
     const raw = await app.redis.get(sessionKey(id));
     if (!raw)

@@ -15,10 +15,10 @@
     "@cpi/config": "1.0.0",
     "@cpi/db": "1.0.0",
     "@cpi/shared": "1.0.0",
-    "@cpi/spreadsheet": "1.0.0",
     "archiver": "^8.0.0",
     "bullmq": "^5.81.2",
     "drizzle-orm": "^0.45.2",
+    "file-type": "^22.0.2",
     "ioredis": "^5.11.1",
     "pino": "^9.7.0"
   },

@@ -1,63 +1,55 @@
-import { AbortMultipartUploadCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import {
+  AbortMultipartUploadCommand,
+  DeleteObjectCommand,
+  HeadObjectCommand,
+} from '@aws-sdk/client-s3';
 import { describe, expect, it, vi } from 'vitest';
 import type { WorkerContext } from './context';
 import { runMaintenance } from './maintenance';
 
-/** Drizzle-запрос можно и дождаться, и продолжить через `.returning()`. */
-function chainable(rows: unknown[]) {
-  return {
-    returning: vi.fn(async () => rows),
-    then: (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) =>
-      Promise.resolve(rows).then(resolve, reject),
-  };
-}
-
-function updateStub(sink: Array<Record<string, unknown>>, rows: unknown[]) {
-  return vi.fn(() => ({
-    set: vi.fn((values: Record<string, unknown>) => {
-      sink.push(values);
-      return { where: vi.fn(() => chainable(rows)) };
-    }),
-  }));
-}
-
 function maintenanceContext(selections: unknown[][], send: (command: unknown) => Promise<unknown>) {
   const updates: Array<Record<string, unknown>> = [];
-  const submissionUpdates: Array<Record<string, unknown>> = [];
-  const outboxEvents: Array<Record<string, unknown>> = [];
-  const db = {
+  const inserted: Array<Record<string, unknown>> = [];
+  const db: Record<string, unknown> = {
     select: vi.fn(() => ({
       from: vi.fn(() => ({
-        where: vi.fn(() => ({
-          limit: vi.fn(async () => selections.shift() ?? []),
-        })),
+        where: vi.fn(() => {
+          const limit = vi.fn(async () => selections.shift() ?? []);
+          return { limit, for: vi.fn(() => ({ limit })) };
+        }),
       })),
     })),
-    update: updateStub(updates, [{ id: 'artifact-id' }]),
-    transaction: vi.fn(async (callback: (transaction: unknown) => Promise<unknown>) =>
-      callback({
-        update: updateStub(submissionUpdates, [{ id: 'submission-id' }]),
-        insert: vi.fn(() => ({
-          values: vi.fn((values: Record<string, unknown>) => {
-            outboxEvents.push(values);
-            return { onConflictDoNothing: vi.fn(async () => []) };
-          }),
-        })),
+    update: vi.fn(() => ({
+      set: vi.fn((values: Record<string, unknown>) => {
+        updates.push(values);
+        return { where: vi.fn(async () => []) };
       }),
-    ),
+    })),
+    insert: vi.fn(() => ({
+      values: vi.fn((values: Record<string, unknown>) => {
+        inserted.push(values);
+        return { onConflictDoNothing: vi.fn(async () => []) };
+      }),
+    })),
+    delete: vi.fn(() => ({
+      where: vi.fn(async () => []),
+    })),
+    execute: vi.fn(async () => []),
   };
+  db.transaction = vi.fn(async (callback: (transaction: unknown) => Promise<unknown>) =>
+    callback(db),
+  );
   const context = {
     config: {
       ABANDONED_UPLOAD_HOURS: 1,
       DELETED_OBJECT_RETENTION_DAYS: 0,
-      S3_QUARANTINE_BUCKET: 'quarantine',
-      S3_PRIVATE_BUCKET: 'private',
+      S3_BUCKET: 'shared',
     },
     db,
     s3: { send: vi.fn(send) },
     logger: { warn: vi.fn() },
   } as unknown as WorkerContext;
-  return { context, updates, submissionUpdates, outboxEvents };
+  return { context, updates, inserted };
 }
 
 describe('storage maintenance', () => {
@@ -65,14 +57,17 @@ describe('storage maintenance', () => {
     const deletedKeys: string[] = [];
     const artifact = {
       id: 'artifact-id',
-      bucket: 'private',
-      objectKey: 'event/submission/artifact',
+      submissionId: 'submission-id',
+      status: 'uploading',
+      sizeBytes: 42,
+      bucket: 'shared',
+      objectKey: 'locker/artifacts/Событие/Иванов/Устав.pdf',
       uploadId: null,
     };
     const exportJob = {
       id: 'export-id',
-      bucket: 'exports',
-      objectKey: 'event/export.zip',
+      bucket: 'legacy',
+      objectKey: 'locker/exports/event/export.zip',
     };
     const { context, updates } = maintenanceContext(
       [[], [artifact], [exportJob]],
@@ -89,11 +84,11 @@ describe('storage maintenance', () => {
       abandonedUploads: 0,
       deletedObjects: 1,
       expiredExports: 1,
+      abandonedProductMedia: 0,
     });
     expect(deletedKeys).toEqual([
-      'private:event/submission/artifact',
-      'quarantine:event/submission/artifact',
-      'exports:event/export.zip',
+      'shared:locker/artifacts/Событие/Иванов/Устав.pdf',
+      'legacy:locker/exports/event/export.zip',
     ]);
     expect(updates[0]).toMatchObject({ uploadId: null });
     expect(updates[0]?.storageDeletedAt).toBeInstanceOf(Date);
@@ -109,11 +104,19 @@ describe('storage maintenance', () => {
     const artifact = {
       id: 'artifact-id',
       submissionId: 'submission-id',
-      bucket: 'quarantine',
-      objectKey: 'event/submission/artifact',
+      status: 'uploading',
+      sizeBytes: 42,
+      bucket: 'shared',
+      objectKey: 'locker/incoming/event/submission/artifact',
       uploadId: 'completed-upload',
     };
-    const { context } = maintenanceContext([[artifact], [], []], async (command) => {
+    const { context } = maintenanceContext([[artifact], [artifact], [], []], async (command) => {
+      if (command instanceof HeadObjectCommand) {
+        throw Object.assign(new Error('missing'), {
+          name: 'NotFound',
+          $metadata: { httpStatusCode: 404 },
+        });
+      }
       if (command instanceof AbortMultipartUploadCommand) {
         throw Object.assign(new Error('missing'), { name: 'NoSuchUpload' });
       }
@@ -125,31 +128,71 @@ describe('storage maintenance', () => {
       abandonedUploads: 1,
       deletedObjects: 0,
       expiredExports: 0,
+      abandonedProductMedia: 0,
     });
   });
 
-  it('releases the submission of an abandoned upload instead of leaving it in processing', async () => {
+  it('recovers an object completed in S3 before the database status commit', async () => {
     const artifact = {
       id: 'artifact-id',
       submissionId: 'submission-id',
-      bucket: 'quarantine',
-      objectKey: 'event/submission/artifact',
-      uploadId: null,
+      status: 'uploading',
+      sizeBytes: 42,
+      bucket: 'beget-bucket',
+      objectKey: 'locker/incoming/event/submission/artifact',
+      uploadId: 'already-completed-upload',
     };
-    const { context, submissionUpdates, outboxEvents } = maintenanceContext(
-      [[artifact], [], []],
+    const { context, updates, inserted } = maintenanceContext(
+      [[artifact], [artifact], [], []],
       async (command) => {
-        if (command instanceof DeleteObjectCommand) return {};
-        throw new Error('Unexpected S3 command');
+        if (command instanceof HeadObjectCommand) {
+          return {
+            ContentLength: 42,
+            ETag: 'etag',
+            Metadata: { artifact: 'artifact-id', submission: 'submission-id' },
+          };
+        }
+        throw new Error('Recovery must not delete a valid object');
       },
     );
 
-    await expect(runMaintenance(context)).resolves.toMatchObject({ abandonedUploads: 1 });
-    expect(submissionUpdates[0]).toMatchObject({ status: 'failed' });
-    expect(outboxEvents[0]).toMatchObject({
-      type: 'artifact.failed',
-      aggregateId: 'artifact-id',
-      payload: { artifactId: 'artifact-id', submissionId: 'submission-id' },
+    await expect(runMaintenance(context)).resolves.toEqual({
+      abandonedUploads: 0,
+      deletedObjects: 0,
+      expiredExports: 0,
+      abandonedProductMedia: 0,
     });
+    expect(updates[0]).toMatchObject({ status: 'uploaded', uploadId: null, etag: 'etag' });
+    expect(inserted).toContainEqual({
+      type: 'artifact.uploaded',
+      aggregateType: 'artifact',
+      aggregateId: 'artifact-id',
+      payload: { artifactId: 'artifact-id' },
+    });
+  });
+
+  it('removes expired pending product images and their stored objects', async () => {
+    const media = {
+      id: 'media-id',
+      bucket: 'shared',
+      objectKey: 'locker/store/products/product/media.png',
+      uploadStatus: 'pending',
+    };
+    const deletedKeys: string[] = [];
+    const { context } = maintenanceContext([[], [], [], [media]], async (command) => {
+      if (command instanceof DeleteObjectCommand) {
+        deletedKeys.push(`${command.input.Bucket}:${command.input.Key}`);
+        return {};
+      }
+      throw new Error('Unexpected S3 command');
+    });
+
+    await expect(runMaintenance(context)).resolves.toEqual({
+      abandonedUploads: 0,
+      deletedObjects: 0,
+      expiredExports: 0,
+      abandonedProductMedia: 1,
+    });
+    expect(deletedKeys).toEqual(['shared:locker/store/products/product/media.png']);
   });
 });

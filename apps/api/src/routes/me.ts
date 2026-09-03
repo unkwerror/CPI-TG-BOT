@@ -1,9 +1,92 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
-import { artifacts, eventParticipants, events, outboxEvents, submissions, users } from '@cpi/db';
-import { profileUpdateSchema } from '@cpi/shared';
+import { z } from 'zod';
+import { and, desc, eq, isNotNull, isNull, ne, sql } from 'drizzle-orm';
+import {
+  artifacts,
+  eventParticipants,
+  events,
+  outboxEvents,
+  submissions,
+  userMessengerIdentities,
+  users,
+  walletAccounts,
+} from '@cpi/db';
+import { isCrmReadyFullName, profileUpdateSchema } from '@cpi/shared';
+import { createSession, destroySession, ensureUserRole, loadAuthenticatedUser } from '../auth';
 import { invalidateEventExports } from '../export-storage';
+import { verifyMaxSharedContact } from '../max-contact';
+import { ensureWalletBootstrap } from '../wallet-service';
 import { serializeArtifact, serializeEvent, serializeSubmission } from '../serializers';
+
+/**
+ * Уточнённое ФИО чаще всего и было причиной, по которой CRM не приняла прошлые
+ * отправки. Поэтому после правки профиля их синхронизация ставится заново:
+ * событие в outbox могло быть давно обработано, а задача в очереди — упасть.
+ */
+async function requeueCrmSync(
+  app: Parameters<FastifyPluginAsync>[0],
+  userId: string,
+): Promise<void> {
+  await app.db
+    .insert(outboxEvents)
+    .values({
+      type: 'crm.user.sync',
+      aggregateType: 'user',
+      aggregateId: userId,
+      payload: { userId },
+    })
+    .onConflictDoUpdate({
+      target: [outboxEvents.type, outboxEvents.aggregateType, outboxEvents.aggregateId],
+      set: {
+        processedAt: null,
+        availableAt: new Date(),
+        attempts: 0,
+        lastError: null,
+      },
+    });
+  const pending = await app.db
+    .select({ id: submissions.id })
+    .from(submissions)
+    .where(
+      and(
+        eq(submissions.userId, userId),
+        eq(submissions.status, 'ready'),
+        isNull(submissions.deletedAt),
+        isNull(submissions.crmSyncedAt),
+      ),
+    )
+    .limit(200);
+  if (pending.length === 0) return;
+  await app.db
+    .insert(outboxEvents)
+    .values(
+      pending.map((submission) => ({
+        type: 'crm.submission.sync',
+        aggregateType: 'submission',
+        aggregateId: submission.id,
+        payload: { submissionId: submission.id },
+      })),
+    )
+    .onConflictDoUpdate({
+      target: [outboxEvents.type, outboxEvents.aggregateType, outboxEvents.aggregateId],
+      set: {
+        processedAt: null,
+        availableAt: new Date(),
+        attempts: 0,
+        lastError: null,
+      },
+    });
+  await app.db
+    .update(submissions)
+    .set({ crmSyncError: null, crmSyncFailedAt: null })
+    .where(
+      and(
+        eq(submissions.userId, userId),
+        isNull(submissions.crmSyncedAt),
+        isNull(submissions.deletedAt),
+      ),
+    );
+}
 
 export const meRoutes: FastifyPluginAsync = async (app) => {
   app.get(
@@ -13,7 +96,11 @@ export const meRoutes: FastifyPluginAsync = async (app) => {
       const user = request.currentUser!;
       return {
         id: user.id,
-        telegramUserId: user.telegramUserId.toString(),
+        telegramUserId: user.telegramUserId?.toString() ?? null,
+        messengerProvider:
+          request.session?.messengerProvider ?? (user.telegramUserId ? 'telegram' : 'max'),
+        messengerUserId:
+          request.session?.messengerUserId ?? user.telegramUserId?.toString() ?? user.id,
         telegramUsername: user.telegramUsername,
         fullName: user.fullName,
         organization: user.organization,
@@ -22,45 +109,33 @@ export const meRoutes: FastifyPluginAsync = async (app) => {
         consentAt: user.consentAt,
         status: user.status,
         roles: user.roles,
-        profileComplete: Boolean(user.fullName && user.consentAt),
+        profileComplete: Boolean(isCrmReadyFullName(user.fullName) && user.consentAt),
       };
     },
   );
 
   app.patch(
     '/me',
-    { preHandler: [app.requireAuth, app.requireCsrf], schema: { tags: ['profile'] } },
+    {
+      preHandler: [app.requireAuth, app.requireCsrf],
+      schema: { tags: ['profile'] },
+    },
     async (request) => {
       const body = profileUpdateSchema.parse(request.body);
-      const updated = await app.db.transaction(async (transaction) => {
-        const [row] = await transaction
-          .update(users)
-          .set({
-            fullName: body.fullName,
-            organization: body.organization ?? null,
-            position: body.position ?? null,
-            phone: body.phone ?? null,
-            consentAt: request.currentUser!.consentAt ?? new Date(),
-            lastSeenAt: new Date(),
-          })
-          .where(eq(users.id, request.currentUser!.id))
-          .returning();
-        // Карточку в CRM создаёт только полное ФИО, а появляется оно именно здесь:
-        // до заполнения профиля CRM отказывала, и адресат не попадал в рассылку.
-        await transaction
-          .insert(outboxEvents)
-          .values({
-            type: 'crm.user.sync',
-            aggregateType: 'user',
-            aggregateId: request.currentUser!.id,
-            payload: { userId: request.currentUser!.id },
-          })
-          .onConflictDoUpdate({
-            target: [outboxEvents.type, outboxEvents.aggregateType, outboxEvents.aggregateId],
-            set: { processedAt: null, availableAt: new Date(), attempts: 0, lastError: null },
-          });
-        return row;
-      });
+      const [updated] = await app.db
+        .update(users)
+        .set({
+          fullName: body.fullName,
+          organization: body.organization ?? null,
+          position: body.position ?? null,
+          phone: body.phone ?? null,
+          consentAt: request.currentUser!.consentAt ?? new Date(),
+          lastSeenAt: new Date(),
+        })
+        .where(eq(users.id, request.currentUser!.id))
+        .returning();
+      await ensureWalletBootstrap(app.db, request.currentUser!.id);
+      await requeueCrmSync(app, request.currentUser!.id);
       const participations = await app.db
         .select({ eventId: eventParticipants.eventId })
         .from(eventParticipants)
@@ -87,8 +162,196 @@ export const meRoutes: FastifyPluginAsync = async (app) => {
       }
       return {
         ...updated,
-        telegramUserId: updated?.telegramUserId.toString(),
+        telegramUserId: updated?.telegramUserId?.toString() ?? null,
+        messengerProvider:
+          request.session?.messengerProvider ?? (updated?.telegramUserId ? 'telegram' : 'max'),
+        messengerUserId:
+          request.session?.messengerUserId ??
+          updated?.telegramUserId?.toString() ??
+          updated?.id ??
+          request.currentUser!.id,
         profileComplete: true,
+      };
+    },
+  );
+
+  app.post(
+    '/me/max-contact',
+    {
+      preHandler: [app.requireAuth, app.requireCsrf],
+      schema: {
+        tags: ['profile'],
+        summary: 'Проверить номер MAX и связать общий профиль',
+      },
+    },
+    async (request, reply) => {
+      if (
+        request.session?.messengerProvider !== 'max' ||
+        !request.session.messengerUserId ||
+        !app.config.MAX_BOT_TOKEN
+      ) {
+        return reply.code(400).send({
+          error: {
+            code: 'MAX_SESSION_REQUIRED',
+            message: 'Откройте профиль из бота MAX',
+          },
+        });
+      }
+      const body = z
+        .object({
+          phone: z.string().min(7).max(64),
+          authDate: z.string().min(10).max(16),
+          hash: z.string().min(64).max(128),
+        })
+        .strict()
+        .parse(request.body);
+      const externalUserId = request.session.messengerUserId;
+      const phone = verifyMaxSharedContact(body, externalUserId, app.config.MAX_BOT_TOKEN, {
+        maxAgeSeconds: app.config.MAX_AUTH_MAX_AGE_SECONDS,
+      });
+      const phoneDigits = phone.slice(1);
+      const currentUserId = request.currentUser!.id;
+      const [current] = await app.db
+        .select()
+        .from(users)
+        .where(eq(users.id, currentUserId))
+        .limit(1);
+      if (!current) throw new Error('MAX session user disappeared');
+
+      const candidates = await app.db
+        .select()
+        .from(users)
+        .where(
+          and(
+            ne(users.id, currentUserId),
+            eq(users.status, 'active'),
+            isNotNull(users.telegramUserId),
+            sql`regexp_replace(coalesce(${users.phone}, ''), '[^0-9]', '', 'g') = ${phoneDigits}`,
+          ),
+        )
+        .orderBy(desc(users.lastSeenAt))
+        .limit(2);
+      const candidate = candidates.length === 1 ? candidates[0] : undefined;
+
+      const pristineMaxProfile =
+        current.telegramUserId === null &&
+        current.fullName === null &&
+        current.consentAt === null &&
+        current.crmPersonId === null;
+      let resolvedUserId = currentUserId;
+      let linked = false;
+      if (candidate && pristineMaxProfile) {
+        const [candidateMaxIdentity] = await app.db
+          .select({ id: userMessengerIdentities.id })
+          .from(userMessengerIdentities)
+          .where(
+            and(
+              eq(userMessengerIdentities.userId, candidate.id),
+              eq(userMessengerIdentities.provider, 'max'),
+            ),
+          )
+          .limit(1);
+        if (!candidateMaxIdentity) {
+          await app.db.transaction(async (transaction) => {
+            const linkedAt = new Date();
+            const [movedIdentity] = await transaction
+              .update(userMessengerIdentities)
+              .set({
+                userId: candidate.id,
+                canMessage: true,
+                lastSeenAt: linkedAt,
+                updatedAt: linkedAt,
+              })
+              .where(
+                and(
+                  eq(userMessengerIdentities.userId, currentUserId),
+                  eq(userMessengerIdentities.provider, 'max'),
+                  eq(userMessengerIdentities.externalUserId, externalUserId),
+                ),
+              )
+              .returning({ id: userMessengerIdentities.id });
+            if (!movedIdentity) {
+              throw new Error('MAX identity disappeared during linking');
+            }
+            await transaction
+              .update(users)
+              .set({ phone, lastSeenAt: linkedAt, updatedAt: linkedAt })
+              .where(eq(users.id, candidate.id));
+            await transaction
+              .delete(outboxEvents)
+              .where(
+                and(
+                  eq(outboxEvents.aggregateType, 'user'),
+                  eq(outboxEvents.aggregateId, currentUserId),
+                ),
+              );
+            // A freshly created messenger profile already owns an auditable wallet and welcome
+            // ledger entries. Deleting that user would violate the wallet's RESTRICT foreign key
+            // and, more importantly, erase the owner behind immutable accounting history. Retire
+            // the placeholder instead: the MAX identity moves to the canonical Telegram user,
+            // while its inaccessible historical wallet remains available for reconciliation.
+            await transaction
+              .update(walletAccounts)
+              .set({ status: 'frozen', updatedAt: linkedAt })
+              .where(
+                and(eq(walletAccounts.userId, currentUserId), eq(walletAccounts.status, 'active')),
+              );
+            await transaction
+              .update(users)
+              .set({
+                status: 'blocked',
+                avatarUrl: null,
+                lastSeenAt: linkedAt,
+                updatedAt: linkedAt,
+              })
+              .where(eq(users.id, currentUserId));
+          });
+          resolvedUserId = candidate.id;
+          linked = true;
+          request.log.info(
+            {
+              sourceUserId: currentUserId,
+              resolvedUserId,
+              messengerProvider: 'max',
+            },
+            'Messenger profile linked to canonical user',
+          );
+        }
+      }
+      if (!linked) {
+        await app.db
+          .update(users)
+          .set({ phone, lastSeenAt: new Date(), updatedAt: new Date() })
+          .where(eq(users.id, currentUserId));
+      }
+      await ensureUserRole(app.db, resolvedUserId, 'participant');
+      if (app.config.SUPERADMIN_MAX_IDS.includes(externalUserId)) {
+        await ensureUserRole(app.db, resolvedUserId, 'superadmin');
+      }
+      await requeueCrmSync(app, resolvedUserId);
+      await destroySession(app, reply, request.session.id);
+      const session = await createSession(app, reply, resolvedUserId, {
+        provider: 'max',
+        externalUserId,
+      });
+      const authenticated = await loadAuthenticatedUser(app.db, resolvedUserId);
+      if (!authenticated) throw new Error('Linked MAX user disappeared');
+      return {
+        linked,
+        phone,
+        user: {
+          id: authenticated.id,
+          telegramUserId: authenticated.telegramUserId?.toString() ?? null,
+          messengerProvider: 'max' as const,
+          messengerUserId: externalUserId,
+          fullName: authenticated.fullName,
+          roles: authenticated.roles,
+          profileComplete: Boolean(
+            isCrmReadyFullName(authenticated.fullName) && authenticated.consentAt,
+          ),
+        },
+        csrfToken: session.csrfToken,
+        sessionToken: session.id,
       };
     },
   );
@@ -140,9 +403,12 @@ export const meRoutes: FastifyPluginAsync = async (app) => {
         )
         .limit(1);
       if (!submission) {
-        return reply
-          .code(404)
-          .send({ error: { code: 'SUBMISSION_NOT_FOUND', message: 'Отправка не найдена' } });
+        return reply.code(404).send({
+          error: {
+            code: 'SUBMISSION_NOT_FOUND',
+            message: 'Отправка не найдена',
+          },
+        });
       }
       const files = await app.db
         .select()

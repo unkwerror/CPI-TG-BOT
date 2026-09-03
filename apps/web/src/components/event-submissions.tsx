@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Card, Spinner } from '@cpi/ui';
 import { api } from '../lib/api';
 import { formatNovosibirskDateTime } from '../lib/dates';
+import { downloadMessengerFile, openExternalLink } from '../lib/messenger-adapter';
 import type { ArtifactItem, SubmissionItem } from '../lib/types';
 import { FilesIcon, LinkIcon } from './icons';
 
@@ -68,7 +69,15 @@ function countLabel(value: number, forms: [string, string, string]): string {
   return `${value} ${form}`;
 }
 
-function FileArtifact({ artifact }: { artifact: ArtifactItem }) {
+function FileArtifact({
+  artifact,
+  downloading,
+  onDownload,
+}: {
+  artifact: ArtifactItem;
+  downloading: boolean;
+  onDownload: (artifact: ArtifactItem) => void;
+}) {
   return (
     <div className="event-artifact-row">
       <FilesIcon />
@@ -80,6 +89,11 @@ function FileArtifact({ artifact }: { artifact: ArtifactItem }) {
       <span className={`artifact-status ${statusClass(artifact.status)}`}>
         {artifactStatusLabels[artifact.status] ?? artifact.status}
       </span>
+      {artifact.status === 'ready' ? (
+        <Button type="button" disabled={downloading} onClick={() => onDownload(artifact)}>
+          {downloading ? 'Открываем…' : 'Скачать'}
+        </Button>
+      ) : null}
     </div>
   );
 }
@@ -94,6 +108,8 @@ export function EventSubmissions({
   const [items, setItems] = useState<SubmissionItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -129,12 +145,38 @@ export function EventSubmissions({
     [items],
   );
 
+  const openSubmissionLink = (url: string) => {
+    setActionError(null);
+    if (!openExternalLink(url)) setActionError('Ссылка имеет неподдерживаемый формат');
+  };
+
+  const download = async (artifact: ArtifactItem) => {
+    setActionError(null);
+    setDownloadingId(artifact.id);
+    try {
+      const result = await api<{ url: string }>(`/artifacts/${artifact.id}/download`);
+      if (!downloadMessengerFile(result.url, artifact.displayName)) {
+        throw new Error('Ссылка на файл недоступна');
+      }
+    } catch (caught) {
+      setActionError(caught instanceof Error ? caught.message : 'Не удалось скачать файл');
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
   return (
     <Card className="event-submissions" aria-labelledby="event-submissions-title">
       <div className="event-submissions-heading">
         <div>
           <p className="eyebrow">Ваши материалы</p>
-          <h2 id="event-submissions-title">Уже отправлено</h2>
+          <h2 id="event-submissions-title">
+            {loading
+              ? 'Проверяем отправки'
+              : items.length > 0
+                ? 'Уже отправлено'
+                : 'Пока нет отправок'}
+          </h2>
         </div>
         {!loading && items.length > 0 ? (
           <span>
@@ -143,6 +185,12 @@ export function EventSubmissions({
           </span>
         ) : null}
       </div>
+
+      {actionError ? (
+        <div className="event-submissions-error" role="alert">
+          <p>{actionError}</p>
+        </div>
+      ) : null}
 
       {loading ? (
         <div className="event-submissions-loading">
@@ -183,23 +231,27 @@ export function EventSubmissions({
                 </div>
               ) : null}
               {submission.link ? (
-                <a
+                <button
                   className="event-link-artifact"
-                  href={submission.link}
-                  target="_blank"
-                  rel="noreferrer"
+                  type="button"
+                  onClick={() => openSubmissionLink(submission.link!)}
                 >
                   <LinkIcon />
                   <span>
                     <small>Ссылка</small>
                     <strong>{submission.link}</strong>
                   </span>
-                </a>
+                </button>
               ) : null}
               {submission.artifacts?.length ? (
                 <div className="event-artifact-list">
                   {submission.artifacts.map((artifact) => (
-                    <FileArtifact artifact={artifact} key={artifact.id} />
+                    <FileArtifact
+                      artifact={artifact}
+                      downloading={downloadingId === artifact.id}
+                      onDownload={(item) => void download(item)}
+                      key={artifact.id}
+                    />
                   ))}
                 </div>
               ) : null}
