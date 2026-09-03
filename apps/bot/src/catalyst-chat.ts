@@ -63,3 +63,20 @@ export function matchesCatalystChatJoinRequest(
 ): boolean {
   return request.chatId === configuration.chatId && request.inviteUrl === configuration.inviteUrl;
 }
+
+export function matchesTrustedCatalystChatJoinRequest(
+  configuration: CatalystChatConfiguration | null,
+  fallback: {
+    chatId?: string | undefined;
+    inviteUrl?: string | undefined;
+  },
+  request: { chatId: string; inviteUrl?: string | undefined },
+): boolean {
+  if (configuration) {
+    return matchesCatalystChatJoinRequest(configuration, request);
+  }
+  if (!fallback.inviteUrl || request.inviteUrl !== fallback.inviteUrl) {
+    return false;
+  }
+  return !fallback.chatId || request.chatId === fallback.chatId;
+}

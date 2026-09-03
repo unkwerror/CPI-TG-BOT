@@ -29,7 +29,7 @@ import {
 import { isPermanentTelegramRecipientError } from './delivery-errors.js';
 import {
   createCatalystChatConfiguration,
-  matchesCatalystChatJoinRequest,
+  matchesTrustedCatalystChatJoinRequest,
   parseCatalystChatConfiguration,
   type CatalystChatConfiguration,
 } from './catalyst-chat.js';
@@ -826,11 +826,17 @@ if (bot) {
     const request = context.chatJoinRequest;
     const chatConfiguration = await loadCatalystChatConfiguration();
     if (
-      !chatConfiguration ||
-      !matchesCatalystChatJoinRequest(chatConfiguration, {
-        chatId: String(request.chat.id),
-        inviteUrl: request.invite_link?.invite_link,
-      })
+      !matchesTrustedCatalystChatJoinRequest(
+        chatConfiguration,
+        {
+          chatId: config.TELEGRAM_CATALYST_CHAT_ID,
+          inviteUrl: config.TELEGRAM_CATALYST_CHAT_INVITE_URL,
+        },
+        {
+          chatId: String(request.chat.id),
+          inviteUrl: request.invite_link?.invite_link,
+        },
+      )
     ) {
       return;
     }
