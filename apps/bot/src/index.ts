@@ -581,6 +581,7 @@ interface PreparedNotification {
   buttonUrl?: string;
   buttonKind?: 'web_app' | 'url';
   buttons?: BroadcastButton[];
+  allowLegacyTelegramFallback?: boolean;
   targetProvider?: 'telegram' | 'max';
   preferredProvider?: 'telegram' | 'max';
 }
@@ -689,6 +690,7 @@ async function deliveryEndpoints(notification: PreparedNotification): Promise<De
   }
   if (
     endpoints.length === 0 &&
+    notification.allowLegacyTelegramFallback !== false &&
     notification.targetProvider !== 'max' &&
     notification.telegramUserId !== null &&
     bot
@@ -1133,6 +1135,7 @@ if (bot || maxClient) {
               deduplicationKey: `${data.type}:${data.broadcastId}:${part.id}:${recipient.userId}`,
               message: part.message,
               ...(part.buttons ? { buttons: part.buttons } : {}),
+              allowLegacyTelegramFallback: false,
               targetProvider: 'telegram',
             });
           }

@@ -11,6 +11,15 @@ describe('isPermanentTelegramRecipientError', () => {
     ).toBe(true);
   });
 
+  it('recognizes an unavailable Telegram chat as a permanent recipient failure', () => {
+    expect(
+      isPermanentTelegramRecipientError({
+        error_code: 400,
+        description: 'Bad Request: chat not found',
+      }),
+    ).toBe(true);
+  });
+
   it('keeps rate limits and network errors retryable', () => {
     expect(isPermanentTelegramRecipientError({ error_code: 429 })).toBe(false);
     expect(isPermanentTelegramRecipientError(new Error('network failed'))).toBe(false);
