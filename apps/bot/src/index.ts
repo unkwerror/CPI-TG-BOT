@@ -34,6 +34,11 @@ import {
   type CatalystChatConfiguration,
 } from './catalyst-chat.js';
 import {
+  CATALYST_OPENING_BROADCAST_ID,
+  catalystOpeningBroadcastParts,
+  type BroadcastButton,
+} from './catalyst-opening-broadcast.js';
+import {
   isPermanentMaxRecipientError,
   MaxClient,
   maxOpenAppButton,
@@ -572,9 +577,10 @@ interface PreparedNotification {
   telegramUserId: bigint | null;
   deduplicationKey: string;
   message: string;
-  buttonText: string;
-  buttonUrl: string;
+  buttonText?: string;
+  buttonUrl?: string;
   buttonKind?: 'web_app' | 'url';
+  buttons?: BroadcastButton[];
   targetProvider?: 'telegram' | 'max';
   preferredProvider?: 'telegram' | 'max';
 }
@@ -585,6 +591,23 @@ async function activeBroadcastRecipients(): Promise<
   return db
     .select({ userId: users.id, telegramUserId: users.telegramUserId })
     .from(users)
+    .where(eq(users.status, 'active'));
+}
+
+async function activeTelegramBroadcastRecipients(): Promise<
+  Array<{ userId: string; telegramUserId: bigint | null }>
+> {
+  return db
+    .selectDistinct({ userId: users.id, telegramUserId: users.telegramUserId })
+    .from(users)
+    .innerJoin(
+      userMessengerIdentities,
+      and(
+        eq(userMessengerIdentities.userId, users.id),
+        eq(userMessengerIdentities.provider, 'telegram'),
+        eq(userMessengerIdentities.canMessage, true),
+      ),
+    )
     .where(eq(users.status, 'active'));
 }
 
@@ -608,6 +631,30 @@ function addBroadcastNotifications(
       buttonUrl: input.buttonUrl,
     });
   }
+}
+
+function notificationButtons(notification: PreparedNotification): BroadcastButton[] {
+  if (notification.buttons) return notification.buttons;
+  if (!notification.buttonText || !notification.buttonUrl) return [];
+  return [
+    {
+      text: notification.buttonText,
+      url: notification.buttonUrl,
+      kind: notification.buttonKind ?? 'web_app',
+    },
+  ];
+}
+
+function telegramReplyMarkup(notification: PreparedNotification): InlineKeyboard | undefined {
+  const buttons = notificationButtons(notification);
+  if (buttons.length === 0) return undefined;
+  const keyboard = new InlineKeyboard();
+  for (const [index, button] of buttons.entries()) {
+    if (index > 0) keyboard.row();
+    if (button.kind === 'url') keyboard.url(button.text, button.url);
+    else keyboard.webApp(button.text, button.url);
+  }
+  return keyboard;
 }
 
 interface DeliveryEndpoint {
@@ -658,7 +705,7 @@ async function deliveryEndpoints(notification: PreparedNotification): Promise<De
 
 if (bot) {
   bot.use(async (context, next) => {
-    if (context.from && !context.from.is_bot) {
+    if (context.from && !context.from.is_bot && !context.update.chat_join_request) {
       await updateTelegramIdentity(context.from);
     }
     await next();
@@ -841,23 +888,24 @@ if (bot) {
       return;
     }
 
-    const [linked] = await db
-      .select({ userId: leaderIdBindings.userId })
+    const [knownUser] = await db
+      .select({ userId: users.id })
       .from(userMessengerIdentities)
-      .innerJoin(leaderIdBindings, eq(leaderIdBindings.userId, userMessengerIdentities.userId))
+      .innerJoin(users, eq(users.id, userMessengerIdentities.userId))
       .where(
         and(
           eq(userMessengerIdentities.provider, 'telegram'),
           eq(userMessengerIdentities.externalUserId, String(request.from.id)),
+          eq(users.status, 'active'),
         ),
       )
       .limit(1);
-    if (!linked) return;
+    if (!knownUser) return;
 
     await bot.api.approveChatJoinRequest(request.chat.id, request.from.id);
     logger.info(
-      { chatId: String(request.chat.id), userId: linked.userId },
-      'Approved Catalyst chat join request for a Leader-ID user',
+      { chatId: String(request.chat.id), userId: knownUser.userId },
+      'Approved Catalyst chat join request for an active bot user',
     );
   });
 
@@ -1073,6 +1121,31 @@ if (bot || maxClient) {
           }
         }
       } else if (
+        data.type === 'broadcast.telegram.catalyst_opening' &&
+        data.broadcastId === CATALYST_OPENING_BROADCAST_ID
+      ) {
+        const recipients = await activeTelegramBroadcastRecipients();
+        const parts = catalystOpeningBroadcastParts(webAppUrl());
+        for (const recipient of recipients) {
+          for (const part of parts) {
+            notifications.push({
+              ...recipient,
+              deduplicationKey: `${data.type}:${data.broadcastId}:${part.id}:${recipient.userId}`,
+              message: part.message,
+              ...(part.buttons ? { buttons: part.buttons } : {}),
+              targetProvider: 'telegram',
+            });
+          }
+        }
+        logger.info(
+          {
+            broadcastId: data.broadcastId,
+            recipients: recipients.length,
+            messages: notifications.length,
+          },
+          'Prepared Catalyst opening broadcast',
+        );
+      } else if (
         (data.type === 'broadcast.event.published' ||
           data.type === 'broadcast.event.uploads_opened') &&
         data.eventId
@@ -1168,32 +1241,27 @@ if (bot || maxClient) {
             let telegramMessageId: number | null = null;
             if (endpoint.provider === 'telegram') {
               if (!bot) continue;
+              const replyMarkup = telegramReplyMarkup(notification);
               const sent = await bot.api.sendMessage(
                 endpoint.externalUserId,
                 notification.message,
                 {
-                  reply_markup:
-                    notification.buttonKind === 'url'
-                      ? new InlineKeyboard().url(notification.buttonText, notification.buttonUrl)
-                      : new InlineKeyboard().webApp(
-                          notification.buttonText,
-                          notification.buttonUrl,
-                        ),
+                  ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
                 },
               );
               telegramMessageId = sent.message_id;
               externalMessageId = String(sent.message_id);
             } else {
               if (!maxClient) continue;
+              const [button] = notificationButtons(notification);
               const sent = await maxClient.sendMessage(
                 endpoint.externalUserId,
                 notification.message,
-                notification.buttonKind === 'url'
-                  ? maxOpenAppButton({
-                      text: notification.buttonText,
-                      fallbackUrl: notification.buttonUrl,
-                    })
-                  : maxAppButton(notification.buttonText, notification.buttonUrl),
+                button
+                  ? button.kind === 'url'
+                    ? maxOpenAppButton({ text: button.text, fallbackUrl: button.url })
+                    : maxAppButton(button.text, button.url)
+                  : undefined,
               );
               externalMessageId = sent.body.mid;
             }
