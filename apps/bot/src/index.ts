@@ -35,7 +35,9 @@ import {
 } from './catalyst-chat.js';
 import {
   CATALYST_OPENING_BROADCAST_ID,
+  CATALYST_OPENING_REMINDER_BROADCAST_ID,
   catalystOpeningBroadcastParts,
+  catalystOpeningReminderBroadcastParts,
   type BroadcastButton,
 } from './catalyst-opening-broadcast.js';
 import {
@@ -1124,10 +1126,14 @@ if (bot || maxClient) {
         }
       } else if (
         data.type === 'broadcast.telegram.catalyst_opening' &&
-        data.broadcastId === CATALYST_OPENING_BROADCAST_ID
+        (data.broadcastId === CATALYST_OPENING_BROADCAST_ID ||
+          data.broadcastId === CATALYST_OPENING_REMINDER_BROADCAST_ID)
       ) {
         const recipients = await activeTelegramBroadcastRecipients();
-        const parts = catalystOpeningBroadcastParts(webAppUrl());
+        const parts =
+          data.broadcastId === CATALYST_OPENING_BROADCAST_ID
+            ? catalystOpeningBroadcastParts(webAppUrl())
+            : catalystOpeningReminderBroadcastParts();
         for (const recipient of recipients) {
           for (const part of parts) {
             notifications.push({

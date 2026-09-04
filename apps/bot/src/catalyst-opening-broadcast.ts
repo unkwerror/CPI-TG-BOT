@@ -5,12 +5,13 @@ export interface BroadcastButton {
 }
 
 export interface CatalystOpeningBroadcastPart {
-  id: 'announcement' | 'registration' | 'chat';
+  id: 'announcement' | 'registration' | 'chat' | 'reminder';
   message: string;
   buttons?: BroadcastButton[];
 }
 
 export const CATALYST_OPENING_BROADCAST_ID = 'catalyst-opening-2026-09-03-v1';
+export const CATALYST_OPENING_REMINDER_BROADCAST_ID = 'catalyst-opening-reminder-2026-09-04-v1';
 
 const leaderIdEventUrl = 'https://leader-id.ru/events/606467';
 const catalystChatUrl = 'https://t.me/+RUMOR_k8dcAwMmNi';
@@ -59,6 +60,26 @@ export function catalystOpeningBroadcastParts(webAppUrl: string): CatalystOpenin
         'Там уже выложили фотографии с Science Picnic — ищите себя 📸 А дальше именно в чате будут материалы курса, важные объявления, задания и общение с другими участниками.',
       ].join('\n'),
       buttons: [{ text: '💬 Вступить в чат Catalyst', url: catalystChatUrl, kind: 'url' }],
+    },
+  ];
+}
+
+export function catalystOpeningReminderBroadcastParts(): CatalystOpeningBroadcastPart[] {
+  return [
+    {
+      id: 'reminder',
+      message: [
+        'Друзья, ждём вас сегодня на открытии Catalyst! 🚀',
+        '',
+        'Будем знакомиться, играть в стартап-квиз, общаться с экспертами и искать людей, с которыми можно делать проект вместе. Расскажем, как будет устроен Catalyst и система баллов.',
+        '',
+        'И, конечно, просто хорошо проведём время: будет еда, чай и кофе, а ещё куча призов. Да, Oreo и дошики тоже разыгрываем 👀',
+        '',
+        '⏰ Сегодня в 16:20',
+        '📍 Библиотека КПА',
+        '',
+        'До встречи! 💙',
+      ].join('\n'),
     },
   ];
 }

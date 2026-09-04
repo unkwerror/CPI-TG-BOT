@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   CATALYST_OPENING_BROADCAST_ID,
+  CATALYST_OPENING_REMINDER_BROADCAST_ID,
   catalystOpeningBroadcastParts,
+  catalystOpeningReminderBroadcastParts,
 } from './catalyst-opening-broadcast.js';
 
 describe('Catalyst opening broadcast', () => {
@@ -28,6 +30,27 @@ describe('Catalyst opening broadcast', () => {
         text: '💬 Вступить в чат Catalyst',
         url: 'https://t.me/+RUMOR_k8dcAwMmNi',
         kind: 'url',
+      },
+    ]);
+  });
+
+  it('builds the approved opening-day reminder', () => {
+    expect(CATALYST_OPENING_REMINDER_BROADCAST_ID).toBe('catalyst-opening-reminder-2026-09-04-v1');
+    expect(catalystOpeningReminderBroadcastParts()).toEqual([
+      {
+        id: 'reminder',
+        message: [
+          'Друзья, ждём вас сегодня на открытии Catalyst! 🚀',
+          '',
+          'Будем знакомиться, играть в стартап-квиз, общаться с экспертами и искать людей, с которыми можно делать проект вместе. Расскажем, как будет устроен Catalyst и система баллов.',
+          '',
+          'И, конечно, просто хорошо проведём время: будет еда, чай и кофе, а ещё куча призов. Да, Oreo и дошики тоже разыгрываем 👀',
+          '',
+          '⏰ Сегодня в 16:20',
+          '📍 Библиотека КПА',
+          '',
+          'До встречи! 💙',
+        ].join('\n'),
       },
     ]);
   });
