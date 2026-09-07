@@ -22,7 +22,12 @@ import { Button, Card, Spinner } from '@cpi/ui';
 import { api } from '../lib/api';
 import { formatNovosibirskDate, formatNovosibirskDateTime } from '../lib/dates';
 import { resolveIdempotencyAttempt, type IdempotencyAttempt } from '../lib/idempotent-action';
-import { getMessengerAdapter, normalizeExternalUrl } from '../lib/messenger-adapter';
+import {
+  getMessengerAdapter,
+  normalizeExternalUrl,
+  openExternalLink,
+} from '../lib/messenger-adapter';
+import { catalystMerch, catalystMerchImages, catalystMerchKind } from '../lib/catalyst-merch';
 import { richContentToText } from '../lib/rich-content';
 import type { CurrentUser, EventItem } from '../lib/types';
 import type {
@@ -51,7 +56,14 @@ import {
 import { StartupStudioLogo } from './startup-studio-logo';
 import { LeaderIdCard } from './leader-id-card';
 import { CoworkingCard } from './coworking';
-import { isCatalystTee, CatalystTeeGallery, CatalystTeeOptions } from './catalyst-merch';
+import {
+  isCatalystTee,
+  CatalystTeeGallery,
+  CatalystTeeOptions,
+  CatalystCatalogIntro,
+  CatalystProductArt,
+  CatalystWritingOptions,
+} from './catalyst-merch';
 import { formatWalletAmount, useWalletProgram } from './wallet-program-context';
 import { RichHtml } from './rich-html';
 import { EntityActionDock, EntityBackButton } from './entity-action-dock';
@@ -651,6 +663,7 @@ export function StoreView({
   const [selectedMediaIndex, setSelectedMediaIndex] = useState(0);
   const [teeColor, setTeeColor] = useState<'dark' | 'light'>('dark');
   const [teeSize, setTeeSize] = useState('M');
+  const [writingKind, setWritingKind] = useState<'pen' | 'pencil'>('pen');
   const [message, setMessage] = useState<string | null>(null);
   const [ordering, setOrdering] = useState(false);
   const [pickupQr, setPickupQr] = useState<{
@@ -726,13 +739,27 @@ export function StoreView({
         url: item.url,
         altText: item.altText || selected.title,
       })),
+      ...catalystMerchImages(selected),
     ]) {
-      if (!image?.url || seen.has(image.url)) continue;
-      seen.add(image.url);
+      if (!image?.url) continue;
+      // API media URLs are absolute; bundled fallbacks are relative to the same origin.
+      const key = new URL(image.url, window.location.origin).href;
+      if (seen.has(key)) continue;
+      seen.add(key);
       images.push(image);
     }
     return images;
   }, [selected]);
+  const selectedKind = selected ? catalystMerchKind(selected) : null;
+  const isTeamPass = selectedKind === 'ticket';
+  const soldOut = selected?.stockMode === 'limited' && (selected.available ?? 0) === 0;
+  const actionLabel = isTeamPass
+    ? 'Обсудить с организаторами'
+    : ordering
+      ? 'Создаём заказ…'
+      : soldOut
+        ? 'Сейчас недоступно'
+        : 'Обменять баллы';
   const openProduct = (product: WalletProduct) => {
     if (storeMutationRef.current) return;
     checkoutAttemptRef.current = null;
@@ -740,6 +767,8 @@ export function StoreView({
     setSelectedMediaIndex(0);
     setTeeColor('dark');
     setTeeSize('M');
+    setWritingKind('pen');
+    setMessage(null);
   };
   useEffect(() => {
     if (!initialProductKey || loading) return;
@@ -752,6 +781,8 @@ export function StoreView({
       setSelectedMediaIndex(0);
       setTeeColor('dark');
       setTeeSize('M');
+      setWritingKind('pen');
+      setMessage(null);
     } else {
       setMessage('Товар по этой ссылке не найден');
     }
@@ -774,13 +805,16 @@ export function StoreView({
     setSelected(null);
   };
   const placeOrder = async () => {
-    if (!selected) return;
+    if (!selected || soldOut) return;
+    if (isTeamPass) return;
     const comment = isCatalystTee(selected)
       ? 'Футболка Catalyst\nЦвет: ' +
         (teeColor === 'dark' ? 'Тёмный' : 'Светлый') +
         '\nРазмер: ' +
         teeSize
-      : null;
+      : selectedKind === 'writing'
+        ? `Catalyst\nВариант: ${writingKind === 'pen' ? 'Ручка' : 'Карандаш'}`
+        : null;
     const body = JSON.stringify({
       items: [{ productId: selected.id, quantity: 1 }],
       ...(comment ? { comment } : {}),
@@ -798,6 +832,14 @@ export function StoreView({
       });
       checkoutAttemptRef.current = null;
       setOrders((items) => [order, ...items.filter((item) => item.id !== order.id)]);
+      // Avoid offering a stale last unit after checkout. The server remains authoritative.
+      setProducts((items) =>
+        items.map((item) =>
+          item.id === selected.id && item.stockMode === 'limited'
+            ? { ...item, available: Math.max(0, (item.available ?? 0) - 1) }
+            : item,
+        ),
+      );
       setMessage(
         order.status === 'paid'
           ? 'Оплата прошла. Оставьте заявку на выдачу ниже.'
@@ -875,12 +917,20 @@ export function StoreView({
   const pickupSecondsLeft = pickupQr
     ? Math.max(0, Math.ceil((new Date(pickupQr.expiresAt).getTime() - pickupNow) / 1000))
     : 0;
+  const handleProductAction = () => {
+    if (isTeamPass) {
+      if (!openExternalLink('https://t.me/+gnlffXx7cLZhMGVi'))
+        setMessage('Не удалось открыть чат. Обратитесь к организаторам в чате Catalyst.');
+    } else void placeOrder();
+  };
   return (
-    <section className="wallet-screen" aria-labelledby="store-title">
+    <section className="wallet-screen merch-store" aria-labelledby="store-title">
       <header className="wallet-page-header">
         <p className="wallet-kicker">Обменять баллы</p>
-        <h1 id="store-title">Магазин</h1>
-        <p>Мерч, встречи и полезные возможности от Стартап-студии НГУ.</p>
+        <h1 id="store-title">
+          Магазин<span className="merch-title-accent">идей и вещей.</span>
+        </h1>
+        <p>Твоя активность становится чем-то осязаемым. Выбирай мерч Catalyst за баллы.</p>
       </header>
       {!programLoading && !summary?.program.storeEnabled ? (
         <div className="wallet-empty-store" role="status">
@@ -891,6 +941,7 @@ export function StoreView({
       ) : null}
       {programLoading || summary?.program.storeEnabled ? (
         <>
+          <CatalystCatalogIntro />
           {categories.length > 1 ? (
             <div className="wallet-chip-row" aria-label="Категории товаров">
               {categories.map((item) => (
@@ -914,6 +965,46 @@ export function StoreView({
           ) : visible.length ? (
             <m.div className="wallet-product-grid" layout>
               {visible.map((product, index) => {
+                const merchKind = catalystMerchKind(product);
+                if (merchKind)
+                  return (
+                    <m.button
+                      type="button"
+                      className={`wallet-product-card merch-card merch-card--${merchKind}`}
+                      key={product.id}
+                      aria-label={`Открыть товар «${product.title}»`}
+                      onClick={() => openProduct(product)}
+                      layout
+                      initial={{ opacity: 0, y: 16 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.97 }}
+                    >
+                      <CatalystProductArt
+                        kind={merchKind}
+                        title={product.title}
+                        {...(product.coverUrl ? { imageUrl: product.coverUrl } : {})}
+                      />
+                      <div className="merch-card__body">
+                        <small>
+                          {merchKind === 'ticket' ? 'Командная возможность' : 'Коллекция Catalyst'}
+                        </small>
+                        <h2>{product.title}</h2>
+                        <div className="merch-card__footer">
+                          <strong>{withUnit(product.price)}</strong>
+                          <span aria-hidden="true">↗</span>
+                        </div>
+                        <span className="merch-card__availability">
+                          {merchKind === 'ticket'
+                            ? 'Только командные баллы · по согласованию'
+                            : product.stockMode === 'limited'
+                              ? (product.available ?? 0) > 0
+                                ? `Доступно: ${product.available} шт.`
+                                : 'Сейчас недоступно'
+                              : 'Оформить заказ'}
+                        </span>
+                      </div>
+                    </m.button>
+                  );
                 if (product.cardHtml && !isCatalystTee(product)) {
                   return (
                     <m.div
@@ -1091,7 +1182,7 @@ export function StoreView({
                 exit={{ opacity: 0 }}
               >
                 <m.section
-                  className={`wallet-dialog wallet-product-sheet${''}`}
+                  className={`wallet-dialog wallet-product-sheet${selectedKind ? ` merch-sheet merch-sheet--${selectedKind}` : ''}`}
                   role="dialog"
                   aria-modal="true"
                   aria-labelledby="order-title"
@@ -1119,7 +1210,22 @@ export function StoreView({
                     >
                       {isCatalystTee(selected) ? <CatalystTeeGallery color={teeColor} /> : null}
                       <div className="wallet-product-gallery__main">
-                        {selectedImages[selectedMediaIndex] ? (
+                        {selectedKind && selectedKind !== 'tee' ? (
+                          <CatalystProductArt
+                            kind={selectedKind}
+                            title={
+                              selectedKind === 'writing'
+                                ? writingKind === 'pen'
+                                  ? 'Ручка Catalyst'
+                                  : 'Карандаш Catalyst'
+                                : selected.title
+                            }
+                            detail
+                            {...(selectedImages[selectedMediaIndex]
+                              ? { imageUrl: selectedImages[selectedMediaIndex].url }
+                              : {})}
+                          />
+                        ) : selectedImages[selectedMediaIndex] ? (
                           <img
                             src={selectedImages[selectedMediaIndex].url}
                             alt={selectedImages[selectedMediaIndex].altText}
@@ -1128,7 +1234,7 @@ export function StoreView({
                           <StoreIcon />
                         )}
                       </div>
-                      {selectedImages.length > 1 ? (
+                      {selectedImages.length > 1 && selectedKind !== 'writing' ? (
                         <div
                           className="wallet-product-gallery__thumbs"
                           aria-label="Фотографии товара"
@@ -1151,6 +1257,9 @@ export function StoreView({
                   <div className={'wallet-product-standard-details'}>
                     <p className="wallet-kicker">{selected.category?.title ?? 'Каталог'}</p>
                     <h2 id="order-title">{selected.title}</h2>
+                    {selectedKind ? (
+                      <p className="merch-sheet__tagline">{catalystMerch[selectedKind].line}</p>
+                    ) : null}
                     {isCatalystTee(selected) ? (
                       <CatalystTeeOptions
                         color={teeColor}
@@ -1159,6 +1268,30 @@ export function StoreView({
                         onSizeChange={setTeeSize}
                         disabled={ordering}
                       />
+                    ) : null}
+                    {selectedKind === 'writing' ? (
+                      <CatalystWritingOptions
+                        value={writingKind}
+                        disabled={ordering}
+                        onChange={(value) => {
+                          setWritingKind(value);
+                          const index = selectedImages.findIndex((image) =>
+                            image.url.endsWith(`/${value}-catalog-v1.webp`),
+                          );
+                          setSelectedMediaIndex(Math.max(0, index));
+                        }}
+                      />
+                    ) : null}
+                    {isTeamPass ? (
+                      <div className="merch-team-rules">
+                        <strong>Одна проходка — для всей команды</strong>
+                        <p>
+                          Только 3 команды. Оплата — из командной копилки или баллами, собранными
+                          всей командой. Для согласования участия и командной оплаты обратитесь к
+                          организаторам в чате Catalyst.
+                        </p>
+                        <small>Открытие чата не бронирует место и не списывает баллы.</small>
+                      </div>
                     ) : null}
                     {selected.descriptionFormat === 'html' ? (
                       <RichHtml
@@ -1184,19 +1317,16 @@ export function StoreView({
                       </p>
                     ) : null}
                     <div className="wallet-product-checkout-summary">
-                      <span>Стоимость</span>
+                      <span>{isTeamPass ? 'Из командной копилки' : 'Стоимость'}</span>
                       <strong>{withUnit(selected.price)}</strong>
                     </div>
                     <Button
                       type="button"
                       className="wallet-primary-button"
-                      disabled={
-                        ordering ||
-                        (selected.stockMode === 'limited' && (selected.available ?? 0) === 0)
-                      }
-                      onClick={() => void placeOrder()}
+                      disabled={ordering || (!isTeamPass && soldOut)}
+                      onClick={handleProductAction}
                     >
-                      {ordering ? 'Создаём заказ…' : 'Обменять баллы'}
+                      {actionLabel}
                     </Button>
                     <Button
                       type="button"
@@ -1214,20 +1344,17 @@ export function StoreView({
                   onClick={closeSelectedProduct}
                 />
                 <EntityActionDock
-                  className="entity-action-dock--product"
+                  className={`entity-action-dock--product${selectedKind ? ` merch-dock merch-dock--${selectedKind}` : ''}`}
                   label={withUnit(selected.price)}
                   detail={selected.title}
                 >
                   <Button
                     type="button"
                     className="entity-action-dock__primary"
-                    disabled={
-                      ordering ||
-                      (selected.stockMode === 'limited' && (selected.available ?? 0) === 0)
-                    }
-                    onClick={() => void placeOrder()}
+                    disabled={ordering || (!isTeamPass && soldOut)}
+                    onClick={handleProductAction}
                   >
-                    {ordering ? 'Создаём заказ…' : 'Обменять баллы'}
+                    {actionLabel}
                   </Button>
                 </EntityActionDock>
               </m.div>

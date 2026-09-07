@@ -1,0 +1,70 @@
+[
+  {
+    "slug": "catalyst-startup-lynch-pass",
+    "title": "Проходка на Стартап-линч вне конкурса",
+    "price": 2500,
+    "stock": 0,
+    "category": "Возможности",
+    "description": "Участие в Стартап-линче вне конкурса для одной команды. Всего 3 команды. Оплата только из командной копилки или баллами, собранными всей командой. Участие и оплату необходимо согласовать с организаторами в чате Catalyst.",
+    "files": []
+  },
+  {
+    "slug": "t-shirt-catalyst",
+    "title": "Футболка Catalyst",
+    "price": 1000,
+    "stock": null,
+    "category": "Мерч",
+    "description": "Фирменная футболка Catalyst с маскотом Стартап-студии НГУ. Выбери цвет и размер — сохраним их в заявке на выдачу.",
+    "files": [
+      "tee-dark-front.webp",
+      "tee-dark-back.webp",
+      "tee-light-front.webp",
+      "tee-light-back.webp"
+    ]
+  },
+  {
+    "slug": "catalyst-notebook",
+    "title": "Блокнот на пружине",
+    "price": 800,
+    "stock": 50,
+    "category": "Мерч",
+    "description": "Место для идей, гипотез и решений. Блокнот на пружине с фирменными маскотами Catalyst. Общий тираж — 50 штук на весь акселератор.",
+    "files": ["notebook-catalog-v1.webp"]
+  },
+  {
+    "slug": "catalyst-shopper",
+    "title": "Шоппер",
+    "price": 700,
+    "stock": 50,
+    "category": "Мерч",
+    "description": "Тёмный шоппер с яркими синими ручками, фирменным карманом и маскотом Catalyst. Для всего, что нужно взять с собой. Общий тираж — 50 штук на весь акселератор.",
+    "files": ["shopper-catalog-v1.webp"]
+  },
+  {
+    "slug": "catalyst-cardholder",
+    "title": "Чехол для пропуска",
+    "price": 250,
+    "stock": null,
+    "category": "Мерч",
+    "description": "Фирменный картхолдер Catalyst с маскотом. Аккуратный чехол для пропуска, который всегда под рукой.",
+    "files": ["cardholder-catalog-v1.webp"]
+  },
+  {
+    "slug": "catalyst-stickers",
+    "title": "Набор стикеров",
+    "price": 200,
+    "stock": null,
+    "category": "Мерч",
+    "description": "Маскоты, идеи и характер Catalyst на одном листе. Для ноутбука, блокнота и всего, что хочется сделать своим.",
+    "files": ["stickers-catalog-v1.webp"]
+  },
+  {
+    "slug": "catalyst-pen-pencil",
+    "title": "Ручка / Карандаш",
+    "price": 150,
+    "stock": null,
+    "category": "Мерч",
+    "description": "Выбери фирменную ручку или карандаш Catalyst. Стоимость указана за один предмет, не за набор. Выбранный вариант сохранится в заявке.",
+    "files": ["pen-catalog-v1.webp", "pencil-catalog-v1.webp"]
+  }
+]

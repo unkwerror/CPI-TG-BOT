@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { MessengerSdk } from '../components/messenger-sdk';
 import './globals.css';
 import './studio.css';
+import './merch.css';
 
 export const metadata: Metadata = {
   title: 'Мои баллы — Стартап-студия НГУ',

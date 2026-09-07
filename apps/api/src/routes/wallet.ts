@@ -22,6 +22,7 @@ import {
 } from '@cpi/db';
 import { AppError } from '@cpi/shared';
 import { writeAudit } from '../audit';
+import { assertPersonalCheckoutAllowed } from '../store-fulfillment';
 import { serializeFeedCoverUrl } from '../feed-cover';
 import { serializeReadyProductMediaList } from '../product-media';
 import { richContentToPlainText, sanitizeRichContent, sanitizeRichHtml } from '../rich-content';
@@ -1015,6 +1016,7 @@ export const walletRoutes: FastifyPluginAsync = async (app) => {
         const requestedById = new Map(normalizedItems.map((item) => [item.productId, item]));
         let total = 0n;
         for (const row of productRows) {
+          assertPersonalCheckoutAllowed(row.product);
           const requested = requestedById.get(row.product.id)!;
           if (
             row.product.status !== 'published' ||

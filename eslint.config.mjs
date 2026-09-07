@@ -24,7 +24,7 @@ export default tseslint.config(
     files: [
       '**/*.config.{js,mjs,ts}',
       'eslint.config.mjs',
-      'scripts/**/*.{js,mjs}',
+      'scripts/**/*.{js,mjs,cjs}',
       'tests/e2e/**/*.ts',
     ],
     extends: [tseslint.configs.disableTypeChecked],
