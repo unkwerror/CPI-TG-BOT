@@ -39,8 +39,8 @@ import { AdminWalletSection, type WalletAdminSectionName } from './admin-wallet-
 import { StartupStudioLogo } from './startup-studio-logo';
 import { AdminProjects } from './admin-projects';
 import { AdminEventRequests } from './admin-event-requests';
+import { AdminCoworking } from './admin-coworking';
 import { AdminBroadcastDialog } from './admin-broadcast-dialog';
-import { AdminCardPackageUploader } from './admin-card-package-uploader';
 import { HtmlDesignPreview } from './rich-html';
 
 type AdminTab =
@@ -48,6 +48,7 @@ type AdminTab =
   | 'users'
   | 'events'
   | 'requests'
+  | 'coworking'
   | 'projects'
   | 'participants'
   | 'artifacts'
@@ -116,7 +117,12 @@ export function AdminApp() {
     { key: 'products', label: 'Товары', group: 'Магазин и лента' },
     { key: 'orders', label: 'Заказы', group: 'Магазин и лента' },
     { key: 'feed', label: 'Публикации', group: 'Магазин и лента' },
-    { key: 'wallet-settings', label: 'Настройки баллов', group: 'Магазин и лента' },
+    { key: 'coworking', label: 'Коворкинг', group: 'Магазин и лента' },
+    {
+      key: 'wallet-settings',
+      label: 'Настройки баллов',
+      group: 'Магазин и лента',
+    },
     { key: 'dashboard', label: 'Обзор артефактов', group: 'Артефакты' },
     { key: 'users', label: 'Пользователи', group: 'Артефакты' },
     { key: 'events', label: 'Мероприятия', group: 'Артефакты' },
@@ -189,6 +195,7 @@ export function AdminApp() {
           />
         ) : null}
         {tab === 'requests' ? <AdminEventRequests /> : null}
+        {tab === 'coworking' ? <AdminCoworking /> : null}
         {tab === 'projects' ? <AdminProjects /> : null}
         {tab === 'participants' ? (
           <Participants eventId={eventId} onEventChange={setEventId} />
@@ -743,32 +750,7 @@ function EventManagement({
               <HtmlDesignPreview html={form.cardHtml} />
             </div>
           ) : null}
-          <AdminCardPackageUploader
-            entityType="event"
-            entityId={editing?.id ?? null}
-            packageId={form.cardPackageId}
-            title={form.title || 'Мероприятие'}
-            onApplied={(cardPackageId) => {
-              setForm((current) => ({ ...current, cardPackageId }));
-              setEditing((current) => (current ? { ...current, cardPackageId } : current));
-              if (editing) {
-                setEvents((items) =>
-                  items.map((item) => (item.id === editing.id ? { ...item, cardPackageId } : item)),
-                );
-              }
-            }}
-            onRemoved={() => {
-              setForm((current) => ({ ...current, cardPackageId: null }));
-              setEditing((current) => (current ? { ...current, cardPackageId: null } : current));
-              if (editing) {
-                setEvents((items) =>
-                  items.map((item) =>
-                    item.id === editing.id ? { ...item, cardPackageId: null } : item,
-                  ),
-                );
-              }
-            }}
-          />
+
           <fieldset className="wallet-permissions admin-wide">
             <legend>Leader-ID / Catalyst</legend>
             <label>
@@ -1445,7 +1427,10 @@ function Exports({
     if (!eventId) return;
     setMessage('Формируем выгрузку — она появится в таблице ниже.');
     try {
-      await api('/admin/exports', { method: 'POST', body: JSON.stringify({ eventId, kind }) });
+      await api('/admin/exports', {
+        method: 'POST',
+        body: JSON.stringify({ eventId, kind }),
+      });
       await load();
     } catch (caught) {
       setMessage(caught instanceof Error ? caught.message : 'Не удалось создать выгрузку');

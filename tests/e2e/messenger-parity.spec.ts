@@ -349,9 +349,14 @@ for (const provider of messengerProviders) {
 
     api.completeLeaderIdOAuth();
     await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expect(card).toBeHidden();
+    await page.getByRole('button', { name: 'Открыть профиль', exact: true }).click();
     await expect(card.getByText('Leader-ID подключён')).toBeVisible();
     await expect(card.getByRole('button', { name: 'Подключиться и получить +375' })).toBeVisible();
 
+    await card
+      .getByRole('button', { name: 'Подключиться и получить +375' })
+      .evaluate((button) => button.scrollIntoView({ behavior: 'instant', block: 'center' }));
     const beforeSubscribeAudit = await auditInteractiveElements(card);
     await attachInteractiveAudit(
       testInfo,
@@ -395,6 +400,7 @@ for (const provider of messengerProviders) {
     expect(subscribeCalls.every((call) => Boolean(call.idempotencyKey))).toBe(true);
 
     await page.reload();
+    await page.getByRole('button', { name: 'Открыть профиль', exact: true }).click();
     const reloadedCard = page.getByRole('region', { name: 'Leader-ID + Catalyst' });
     await expect(reloadedCard.getByText('Catalyst подключён', { exact: true })).toBeVisible();
     await expect(reloadedCard.getByText('+375 начислено')).toBeVisible();
@@ -406,80 +412,24 @@ for (const provider of messengerProviders) {
     expect(pageErrors).toEqual([]);
   });
 
-  test(`${provider}: narrow-mobile ZIP product CTA crosses the validated package bridge once`, async ({
+  test(`${provider}: legacy package product uses native checkout without an iframe`, async ({
     page,
-  }, testInfo) => {
-    await page.setViewportSize({ width: 360, height: 640 });
-    const pageErrors: string[] = [];
-    page.on('pageerror', (error) => pageErrors.push(error.message));
-
+  }) => {
     await installMessengerMock(page, provider, { startParameter: 'tab_store' });
     const api = await installCatalystApiMock(page, provider, { checkoutResponseLossOnce: true });
     await page.goto('/?tab=store');
-
-    await expect(page.getByRole('heading', { name: 'Магазин' })).toBeVisible();
     await page.getByRole('button', { name: 'Открыть товар «ZIP E2E худи»' }).click();
-
     const dialog = page.getByRole('dialog', { name: 'ZIP E2E худи' });
     await expect(dialog).toBeVisible();
-    const frame = dialog.frameLocator(`iframe[title="Оформление товара: ZIP E2E худи"]`);
-    const packageCta = frame.getByRole('button', { name: 'Выбрать размер L' });
-    await expect(packageCta).toBeVisible();
-    await expect(frame.locator('html')).toHaveAttribute('data-cpi-e2e-bridge', 'ready');
-    await expect
-      .poll(
-        async () =>
-          (await frame.locator('html').getAttribute('data-cpi-e2e-render')) ===
-          String(api.state.packageRenderCalls),
-      )
-      .toBe(true);
-
-    const ctaBox = await packageCta.boundingBox();
-    expect(ctaBox).not.toBeNull();
-    expect(ctaBox!.width).toBeGreaterThanOrEqual(44);
-    expect(ctaBox!.height).toBeGreaterThanOrEqual(44);
-    await packageCta.click({ trial: true });
-    await packageCta.click();
-
-    await expect
-      .poll(
-        async () =>
-          (await getMessengerBridgeCalls(page)).filter(
-            (call) =>
-              call.method === 'window.message' &&
-              (call.args[0] as { type?: unknown } | undefined)?.type === 'cpi-card-action',
-          ).length,
-      )
-      .toBe(2);
-
-    await expect.poll(() => api.state.checkoutCalls).toBe(1);
-    await expect(page.getByText('Failed to fetch')).toBeVisible();
-
-    // A single ZIP click emits the action twice, yet only one request starts.
-    // Retrying after an ambiguous response loss must reuse the same key.
-    await packageCta.click();
-
-    await expect(page.getByText('Оплата прошла. Оставьте заявку на выдачу ниже.')).toBeVisible();
-    await expect(
-      page.getByText(/Параметры из ZIP-карточки:\s*Размер: L\s*Цвет: тёмный/u).first(),
-    ).toBeVisible();
-    expect(api.state.checkoutCalls).toBe(2);
-    expect(api.state.packageRenderCalls).toBeGreaterThanOrEqual(1);
-
-    const checkouts = api.state.calls.filter(
-      (call) => call.method === 'POST' && call.path === '/store/checkout',
-    );
-    const checkout = checkouts[1];
-    expect(checkout?.idempotencyKey).toBeTruthy();
-    expect(checkouts[0]?.idempotencyKey).toBe(checkout?.idempotencyKey);
-    expect(checkout?.body).toMatchObject({
-      items: [{ productId: '00000000-0000-4000-8000-000000000020', quantity: 1 }],
-    });
-    expect((checkout?.body as { comment?: string } | undefined)?.comment).toContain('Размер: L');
-    expect((checkout?.body as { comment?: string } | undefined)?.comment).toContain('Цвет: тёмный');
-
-    const audit = await auditInteractiveElements(page);
-    await attachInteractiveAudit(testInfo, `${provider}-zip-after-checkout.json`, audit);
-    expect(pageErrors).toEqual([]);
+    await expect(dialog.locator('iframe')).toHaveCount(0);
+    const checkout = dialog.getByRole('button', { name: 'Обменять баллы', exact: true });
+    await checkout.click();
+    await expect(dialog.getByRole('alert')).toBeVisible();
+    await checkout.click();
+    await expect(dialog).toHaveCount(0);
+    const calls = api.state.calls.filter((call) => call.path === '/store/checkout');
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.idempotencyKey).toBe(calls[1]?.idempotencyKey);
+    expect(api.state.packageRenderCalls).toBe(0);
   });
 }

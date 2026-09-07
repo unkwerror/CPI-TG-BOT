@@ -148,6 +148,13 @@
       "when": 1788194339774,
       "tag": "0020_catalyst_leader_id_sequence",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1788772800000,
+      "tag": "0021_coworking_bookings",
+      "breakpoints": true
     }
   ]
 }

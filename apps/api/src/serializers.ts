@@ -18,6 +18,7 @@ export function serializeEvent(event: EventRow) {
     now <= event.acceptUploadsUntil;
   return {
     ...publicEvent,
+    cardPackageId: null,
     description: event.description
       ? sanitizeRichContent(event.description, event.descriptionFormat)
       : null,

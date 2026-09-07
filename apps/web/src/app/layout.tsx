@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import Script from 'next/script';
 import type { ReactNode } from 'react';
 import './globals.css';
+import './studio.css';
 
 export const metadata: Metadata = {
   title: 'Мои баллы — Стартап-студия НГУ',

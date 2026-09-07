@@ -21,7 +21,7 @@ import { adminWalletRoutes } from './routes/admin-wallet';
 import { adminContentRoutes } from './routes/admin-content';
 import { adminRoutes } from './routes/admin';
 import { authRoutes } from './routes/auth';
-import { cardPackageRoutes } from './routes/card-packages';
+import { coworkingRoutes } from './routes/coworking';
 import { crmIntegrationRoutes } from './routes/crm-integration';
 import { eventRoutes } from './routes/events';
 import { eventRequestRoutes } from './routes/event-requests';
@@ -294,7 +294,7 @@ export async function buildApp(config: ApiEnvironment) {
     async (versioned) => {
       sendApiError(versioned);
       await versioned.register(authRoutes);
-      await versioned.register(cardPackageRoutes);
+      await versioned.register(coworkingRoutes);
       await versioned.register(crmIntegrationRoutes);
       await versioned.register(meRoutes);
       await versioned.register(projectRoutes);

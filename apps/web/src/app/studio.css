@@ -1,0 +1,579 @@
+/* Native Catalyst merchandise and startup-studio bookings. */
+.coworking-section {
+  margin: 28px 0;
+  min-width: 0;
+}
+.coworking-rail {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  padding: 2px 0 14px;
+  scrollbar-width: thin;
+  scrollbar-color: #a9a09a transparent;
+}
+.coworking-card {
+  position: relative;
+  flex: 0 0 87%;
+  min-height: 300px;
+  padding: 24px;
+  overflow: hidden;
+  scroll-snap-align: start;
+  border: 0;
+  border-radius: 25px;
+  text-align: left;
+  color: #20201e;
+  background: #e5daf3;
+  cursor: pointer;
+}
+.coworking-card__eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 1.2px;
+}
+.coworking-card__eyebrow i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #222;
+}
+.coworking-card > strong {
+  position: relative;
+  display: block;
+  z-index: 1;
+  margin-top: 25px;
+  font-size: clamp(24px, 5vw, 34px);
+  line-height: 1.06;
+  letter-spacing: -1.3px;
+  max-width: 280px;
+}
+.coworking-card > p {
+  position: relative;
+  z-index: 1;
+  margin-top: 13px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #4c4655;
+}
+.coworking-card__cta {
+  position: absolute;
+  bottom: 23px;
+  left: 24px;
+  right: 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 700;
+  z-index: 2;
+}
+.coworking-card__cta b {
+  display: grid;
+  place-items: center;
+  width: 37px;
+  height: 37px;
+  border-radius: 50%;
+  background: #242323;
+  color: #f3f0e9;
+  font-size: 24px;
+}
+.studio-scene {
+  position: absolute;
+  right: -26px;
+  bottom: 46px;
+  width: 205px;
+  height: 135px;
+  opacity: 0.85;
+}
+.coworking-card--team {
+  background: #d7eaa8;
+}
+.coworking-team-art {
+  position: absolute;
+  right: 10px;
+  bottom: 70px;
+  display: flex;
+  transform: rotate(-12deg);
+}
+.coworking-team-art span {
+  width: 68px;
+  height: 68px;
+  border: 1px solid #273227;
+  border-radius: 50%;
+  background: #d6d7ef;
+  display: grid;
+  place-items: center;
+  font-size: 43px;
+  margin-left: -15px;
+}
+.coworking-team-art span:nth-child(2) {
+  background: #f5c1d3;
+}
+.coworking-team-art span:nth-child(3) {
+  background: #f3efd7;
+}
+.studio-dialog {
+  margin: auto;
+  padding: 0;
+  border: 1px solid #46423e;
+  border-radius: 28px;
+  width: min(540px, calc(100% - 24px));
+  max-height: calc(100dvh - 36px);
+  background: #181a19;
+  color: #f3f1e9;
+  box-shadow: 0 28px 110px #0009;
+}
+.studio-dialog::backdrop {
+  background: #090a0ac7;
+  backdrop-filter: blur(8px);
+}
+.studio-dialog__inner {
+  padding: 30px 24px;
+}
+.studio-dialog h2 {
+  font-size: 31px;
+  letter-spacing: -1px;
+  line-height: 1.1;
+  margin: 12px 30px 20px 0;
+}
+.studio-close {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  width: 35px;
+  height: 35px;
+  border-radius: 50%;
+  border: 1px solid #565653;
+  background: transparent;
+  color: inherit;
+  font-size: 24px;
+  cursor: pointer;
+}
+.studio-booking-form > p,
+.studio-booking-success p {
+  color: #c6c6be;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.studio-booking-form fieldset {
+  display: grid;
+  gap: 16px;
+  border: 0;
+  padding: 0;
+  margin: 20px 0;
+  min-width: 0;
+}
+.studio-booking-form label,
+.admin-booking label {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 650;
+  min-width: 0;
+}
+.studio-booking-form input,
+.studio-booking-form select,
+.studio-booking-form textarea,
+.admin-booking textarea {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 12px;
+  border: 1px solid #555950;
+  border-radius: 12px;
+  background: #22251f;
+  color: #fff;
+  font: inherit;
+  color-scheme: dark;
+}
+.studio-booking-form small {
+  color: #a9afa1;
+  margin-top: -10px;
+}
+.studio-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.studio-my-bookings {
+  border-top: 1px solid #40433b;
+  padding-top: 18px;
+}
+.studio-my-bookings h3 {
+  font-size: 20px;
+}
+.studio-my-bookings > p {
+  color: #aaa;
+  font-size: 14px;
+}
+.studio-my-bookings article {
+  border: 1px solid #44473e;
+  border-radius: 16px;
+  margin-top: 14px;
+  padding: 16px;
+  display: grid;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+.studio-my-bookings article p,
+.studio-my-bookings article small {
+  margin: 0;
+  color: #c5c8bf;
+  font-size: 13px;
+}
+.studio-my-bookings article button {
+  justify-self: start;
+  border: 0;
+  background: none;
+  color: #dbe6b3;
+  text-decoration: underline;
+  padding: 5px 0;
+  cursor: pointer;
+}
+.booking-status {
+  display: inline-block;
+  justify-self: start;
+  width: fit-content;
+  padding: 5px 10px;
+  border-radius: 30px;
+  font-size: 11px;
+  font-weight: 700;
+  background: #e8deb4;
+  color: #423615;
+}
+.booking-status--confirmed {
+  background: #c8e5a3;
+  color: #25381f;
+}
+.booking-status--rejected {
+  background: #f0c1c5;
+  color: #642e35;
+}
+.booking-status--cancelled {
+  background: #d2d1ca;
+  color: #484a43;
+}
+.studio-booking-success > span {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: #cced9a;
+  color: #23371e;
+  font-size: 30px;
+}
+.wallet-leader-id-anchor:empty {
+  display: none;
+}
+.admin-coworking > p {
+  color: var(--muted, #aaa);
+  line-height: 1.5;
+}
+.admin-booking-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+  gap: 16px;
+  margin: 20px 0;
+}
+.admin-booking {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 24px;
+  border: 1px solid #43463c;
+  border-radius: 20px;
+  background: #181b17;
+}
+.admin-booking h2,
+.admin-booking p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.admin-booking h2 {
+  font-size: 20px;
+}
+.admin-booking p,
+.admin-booking small {
+  font-size: 13px;
+  color: #c4c6ba;
+}
+.admin-booking__purpose {
+  white-space: pre-wrap;
+}
+.admin-booking__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+.catalyst-product-card.wallet-product-card {
+  grid-column: 1 / -1;
+  position: relative;
+  border: 1px solid #484744;
+  border-radius: 26px;
+  overflow: hidden;
+  background: #191b19;
+}
+.catalyst-product-card .wallet-product-image {
+  min-height: 300px;
+  height: clamp(280px, 55vw, 440px);
+  background: #e5dfd1;
+  border-radius: 0;
+  overflow: hidden;
+}
+.catalyst-product-card .wallet-product-image > img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transform: rotate(-8deg) scale(0.96);
+  transition: transform 0.3s ease;
+}
+.catalyst-product-card:hover .wallet-product-image > img {
+  transform: rotate(-4deg) scale(1.02);
+}
+.catalyst-drop-label {
+  position: absolute !important;
+  left: 20px !important;
+  top: 19px !important;
+  bottom: auto !important;
+  right: auto !important;
+  color: #272826 !important;
+  background: none !important;
+  font-size: 10px !important;
+  font-weight: 700;
+  letter-spacing: 1.6px;
+  z-index: 2;
+}
+.catalyst-card-sticker {
+  position: absolute !important;
+  bottom: 22px !important;
+  right: 20px !important;
+  top: auto !important;
+  left: auto !important;
+  background: #cef475 !important;
+  color: #1d2518 !important;
+  font-size: 15px !important;
+  line-height: 1.1 !important;
+  padding: 14px !important;
+  border-radius: 50% !important;
+  transform: rotate(12deg);
+  font-weight: 850;
+  z-index: 2;
+}
+.catalyst-product-card > small,
+.catalyst-product-card > h2,
+.catalyst-product-card > p {
+  margin-left: 22px;
+  margin-right: 22px;
+}
+.catalyst-product-card > h2 {
+  font-size: 26px;
+  letter-spacing: -0.7px;
+}
+.catalyst-product-card > .wallet-product-price {
+  margin: 12px 22px 22px;
+}
+.catalyst-native-gallery > .wallet-product-gallery__main,
+.catalyst-native-gallery > .wallet-product-gallery__thumbs {
+  display: none;
+}
+.catalyst-gallery {
+  border-radius: 20px;
+  overflow: hidden;
+  background: #e6e0d4;
+  color: #242520;
+}
+.catalyst-gallery__top {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px 18px 0;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1px;
+}
+.catalyst-gallery__stage {
+  position: relative;
+  isolation: isolate;
+  height: clamp(270px, 78vw, 440px);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+.catalyst-gallery__stage > img {
+  height: 100%;
+  width: 100%;
+  object-fit: contain;
+  position: relative;
+  z-index: 1;
+  animation: merch-enter 0.22s ease;
+}
+.catalyst-gallery__word {
+  position: absolute;
+  top: 24px;
+  left: 16px;
+  font-size: clamp(52px, 14vw, 95px);
+  line-height: 0.88;
+  font-weight: 900;
+  letter-spacing: -5px;
+  color: #cbc3b1;
+  z-index: 0;
+}
+.catalyst-gallery__stamp {
+  position: absolute;
+  right: 13px;
+  bottom: 15px;
+  z-index: 2;
+  border-radius: 50%;
+  background: #cdeb94;
+  padding: 17px;
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 800;
+  transform: rotate(11deg);
+}
+.catalyst-gallery__views {
+  display: flex;
+  gap: 7px;
+  padding: 12px 16px 16px;
+}
+.catalyst-gallery__views button {
+  flex: 1;
+  border: 1px solid #77796b;
+  border-radius: 40px;
+  padding: 10px;
+  background: transparent;
+  font-size: 12px;
+  color: #36382e;
+  cursor: pointer;
+}
+.catalyst-gallery__views button[aria-pressed='true'] {
+  background: #292c23;
+  color: #f4f2e9;
+}
+.catalyst-options {
+  margin: 20px 0;
+  display: grid;
+  gap: 20px;
+}
+.catalyst-options__intro {
+  line-height: 1.7;
+  font-size: 14px;
+  color: #52564a;
+  margin: 0;
+}
+.catalyst-options fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.catalyst-options legend {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  font-size: 14px;
+  font-weight: 650;
+  margin-bottom: 12px;
+}
+.catalyst-options legend span {
+  font-weight: 400;
+  font-size: 12px;
+  color: #606457;
+}
+.catalyst-color-options,
+.catalyst-size-options {
+  display: flex;
+  gap: 8px;
+}
+.catalyst-options label {
+  position: relative;
+  flex: 1;
+  cursor: pointer;
+}
+.catalyst-options input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.catalyst-options label > span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid #686b60;
+  border-radius: 13px;
+  padding: 14px 8px;
+  font-size: 13px;
+  transition: background 0.15s;
+}
+.catalyst-options input:checked + span {
+  border-color: #cde899;
+  background: #343e23;
+  color: #e3f4be;
+}
+.catalyst-options input:focus-visible + span {
+  outline: 2px solid #f3bad2;
+  outline-offset: 3px;
+}
+.catalyst-options input:disabled + span {
+  opacity: 0.65;
+}
+.catalyst-options i {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid #a1a197;
+  background: #202220;
+}
+.catalyst-options i[data-color='light'] {
+  background: #dadad5;
+}
+.catalyst-selection {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid #484b40;
+  padding: 0 0 20px;
+  font-size: 13px;
+}
+.catalyst-selection > span {
+  color: #606457;
+}
+@keyframes merch-enter {
+  from {
+    opacity: 0.25;
+    transform: translateY(7px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (min-width: 700px) {
+  .coworking-card {
+    flex-basis: calc(50% - 7px);
+  }
+  .studio-scene {
+    width: 230px;
+    right: -20px;
+    opacity: 0.75;
+  }
+  .coworking-card > strong {
+    font-size: 30px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .catalyst-gallery__stage > img {
+    animation: none;
+  }
+  .catalyst-product-card .wallet-product-image > img {
+    transition: none;
+  }
+}

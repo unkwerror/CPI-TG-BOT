@@ -7,6 +7,7 @@ import { api, saveAuthSession } from '../lib/api';
 import { getMessengerAdapter } from '../lib/messenger-adapter';
 import { combineFullName, splitFullName, validateFullName } from '../lib/profile-name';
 import { CatAssistant } from './cat-assistant';
+import { LeaderIdCard } from './leader-id-card';
 import { PhoneIcon, UserIcon } from './icons';
 import { useSession } from './session-provider';
 import type { CurrentUser } from '../lib/types';
@@ -216,6 +217,15 @@ export function ProfileView({
               : 'Если данные изменились, поправьте их здесь — организатор увидит актуальную версию.'
         }
       />
+      {!required ? (
+        <div id="leader-id-catalyst" tabIndex={-1}>
+          <LeaderIdCard
+            openAuthorization={(url) => {
+              getMessengerAdapter()?.openLink(url);
+            }}
+          />
+        </div>
+      ) : null}
       <Card className="profile-form-card">
         <form className="form-stack" onSubmit={save}>
           <section className="profile-form-section" aria-labelledby="profile-name-heading">

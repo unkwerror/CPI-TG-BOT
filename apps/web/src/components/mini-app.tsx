@@ -1,5 +1,4 @@
 'use client';
-
 import Image from 'next/image';
 import { AnimatePresence, m } from 'motion/react';
 import { useCallback, useEffect, useState } from 'react';
@@ -32,10 +31,8 @@ import {
 } from './wallet-views';
 import { WalletProgramProvider } from './wallet-program-context';
 import { WalletMotionProvider } from './wallet-motion-provider';
-import { CardPackageFrame, RichHtml } from './rich-html';
-
+import { RichHtml } from './rich-html';
 type Tab = WalletDestination;
-
 export function MiniApp() {
   const { user, loading, error, online } = useSession();
   const [tab, setTab] = useState<Tab>('home');
@@ -46,7 +43,6 @@ export function MiniApp() {
   const [qrMode, setQrMode] = useState<WalletQrMode | null>(null);
   const [storeProductKey, setStoreProductKey] = useState<string | null>(null);
   const [focusLeaderId, setFocusLeaderId] = useState(false);
-
   useEffect(() => {
     const startParameter = getMessengerAdapter()?.getStartParameter();
     const requestedTab =
@@ -64,7 +60,6 @@ export function MiniApp() {
       setTab(requestedTab);
     }
   }, []);
-
   useEffect(() => {
     if (!user) return;
     const parameters = new URLSearchParams(window.location.search);
@@ -84,7 +79,6 @@ export function MiniApp() {
       })
       .catch(() => undefined);
   }, [user]);
-
   const openEvent = useCallback((event: EventItem) => {
     setSelectedEvent(event);
     try {
@@ -101,17 +95,15 @@ export function MiniApp() {
       // Restricted WebViews may deny storage; opening an event must still work.
     }
   }, []);
-
   const openLeaderIdRegistration = useCallback(() => {
     setCompose(false);
     setSelectedEvent(null);
     setDirectEvent(null);
-    setTab('home');
+    setTab('profile');
     setFocusLeaderId(true);
   }, []);
-
   useEffect(() => {
-    if (!focusLeaderId || tab !== 'home' || selectedEvent) return;
+    if (!focusLeaderId || tab !== 'profile' || selectedEvent) return;
     let frame = 0;
     let attempts = 0;
     const focusTarget = () => {
@@ -128,7 +120,6 @@ export function MiniApp() {
     frame = window.requestAnimationFrame(focusTarget);
     return () => window.cancelAnimationFrame(frame);
   }, [focusLeaderId, selectedEvent, tab]);
-
   const openInternalLink = useCallback(
     (href: string): boolean => {
       const target = parseInternalAppLink(href, window.location.origin);
@@ -152,17 +143,17 @@ export function MiniApp() {
     },
     [openEvent],
   );
-
   useEffect(() => {
     const handleAppLink = (event: Event) => {
-      const customEvent = event as CustomEvent<{ href?: unknown }>;
+      const customEvent = event as CustomEvent<{
+        href?: unknown;
+      }>;
       if (typeof customEvent.detail?.href !== 'string') return;
       if (openInternalLink(customEvent.detail.href)) customEvent.preventDefault();
     };
     window.addEventListener('cpi:app-link', handleAppLink);
     return () => window.removeEventListener('cpi:app-link', handleAppLink);
   }, [openInternalLink]);
-
   if (loading) {
     return (
       <main
@@ -204,7 +195,6 @@ export function MiniApp() {
       </main>
     );
   }
-
   return (
     <WalletMotionProvider>
       <WalletProgramProvider>
@@ -343,7 +333,6 @@ export function MiniApp() {
     </WalletMotionProvider>
   );
 }
-
 function EventDetail({
   event,
   actionDockHidden,
@@ -365,7 +354,6 @@ function EventDetail({
 }) {
   const [participating, setParticipating] = useState(false);
   const [participationError, setParticipationError] = useState<string | null>(null);
-
   useEffect(() => {
     const root = document.documentElement;
     const previousRootOverscroll = root.style.overscrollBehaviorY;
@@ -374,13 +362,15 @@ function EventDetail({
       root.style.overscrollBehaviorY = previousRootOverscroll;
     };
   }, []);
-
   async function participate() {
     if (participating || event.isParticipant) return;
     setParticipating(true);
     setParticipationError(null);
     try {
-      await api<{ joined: boolean; isParticipant: true }>(`/events/${event.id}/participate`, {
+      await api<{
+        joined: boolean;
+        isParticipant: true;
+      }>(`/events/${event.id}/participate`, {
         method: 'POST',
       });
       onParticipated();
@@ -394,10 +384,9 @@ function EventDetail({
       setParticipating(false);
     }
   }
-
   return (
     <section
-      className={`screen event-detail wallet-event-detail${event.cardPackageId ? ' wallet-event-detail--package' : ''}${event.leaderIdRegistrationActive && event.leaderIdEventId && event.leaderIdRegistrationOpen ? ' wallet-event-detail--leader-id-registration' : ''}`}
+      className={`screen event-detail wallet-event-detail${''}${event.leaderIdRegistrationActive && event.leaderIdEventId && event.leaderIdRegistrationOpen ? ' wallet-event-detail--leader-id-registration' : ''}`}
     >
       {!actionDockHidden ? (
         <>
@@ -431,18 +420,7 @@ function EventDetail({
           </EntityActionDock>
         </>
       ) : null}
-      {event.cardPackageId ? (
-        <div className="event-custom-design">
-          <CardPackageFrame
-            packageId={event.cardPackageId}
-            title={`Оформление мероприятия: ${event.title}`}
-            interactive
-            fullscreen
-            onAction={onAdd}
-            onLink={onOpenInternalLink}
-          />
-        </div>
-      ) : event.cardHtml ? (
+      {event.cardHtml ? (
         <div className="event-custom-design">
           <RichHtml html={event.cardHtml} onAction={onAdd} onLink={onOpenInternalLink} />
         </div>
@@ -510,7 +488,7 @@ function EventDetail({
               <h2>Через Leader-ID</h2>
               <p>
                 {event.leaderIdRegistrationOpen
-                  ? 'На главной подключите свой Leader-ID и нажмите «Подключиться к Catalyst». Мы отправим заявку на это и остальные активные мероприятия автоматически — открывать каждое отдельно не нужно.'
+                  ? 'В профиле подключите свой Leader-ID и нажмите «Подключиться к Catalyst». Мы отправим заявку на это и остальные активные мероприятия автоматически — открывать каждое отдельно не нужно.'
                   : 'Приём заявок через Leader-ID на это мероприятие сейчас закрыт. Когда регистрация откроется, действие появится здесь.'}
               </p>
               {event.leaderIdRegistrationOpen ? (

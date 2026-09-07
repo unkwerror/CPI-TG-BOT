@@ -19,7 +19,6 @@ import type { EventArtifactForm, EventItem } from '../lib/types';
 import type { WalletOrder, WalletProduct, WalletTransactionKind } from '../lib/wallet-types';
 import { GiftIcon, QrIcon, ScanIcon, StoreIcon, TransferIcon } from './icons';
 import { formatWalletAmount } from './wallet-program-context';
-import { AdminCardPackageUploader } from './admin-card-package-uploader';
 import { AdminBroadcastDialog } from './admin-broadcast-dialog';
 import { HtmlDesignPreview } from './rich-html';
 
@@ -533,10 +532,19 @@ function WalletTransactions() {
 
 function FundAccessBuilder() {
   const [users, setUsers] = useState<
-    Array<{ id: string; fullName: string | null; telegramUsername: string | null }>
+    Array<{
+      id: string;
+      fullName: string | null;
+      telegramUsername: string | null;
+    }>
   >([]);
   const [accessItems, setAccessItems] = useState<
-    Array<{ userId: string; canCredit: boolean; canDebit: boolean; canView: boolean }>
+    Array<{
+      userId: string;
+      canCredit: boolean;
+      canDebit: boolean;
+      canView: boolean;
+    }>
   >([]);
   const [query, setQuery] = useState('');
   const [selectedUserId, setSelectedUserId] = useState('');
@@ -546,7 +554,12 @@ function FundAccessBuilder() {
   const [message, setMessage] = useState<string | null>(null);
   useEffect(() => {
     void api<{
-      items: Array<{ userId: string; canCredit: boolean; canDebit: boolean; canView: boolean }>;
+      items: Array<{
+        userId: string;
+        canCredit: boolean;
+        canDebit: boolean;
+        canView: boolean;
+      }>;
     }>('/admin/wallet/fund-access')
       .then((result) => setAccessItems(result.items))
       .catch(() => setAccessItems([]));
@@ -557,7 +570,11 @@ function FundAccessBuilder() {
     const timer = window.setTimeout(
       () =>
         void api<{
-          items: Array<{ id: string; fullName: string | null; telegramUsername: string | null }>;
+          items: Array<{
+            id: string;
+            fullName: string | null;
+            telegramUsername: string | null;
+          }>;
         }>(`/admin/users?${parameters}`)
           .then((result) => setUsers(result.items))
           .catch(() => setUsers([])),
@@ -578,11 +595,20 @@ function FundAccessBuilder() {
     try {
       await api(`/admin/wallet/fund-access/${encodeURIComponent(selectedUserId)}`, {
         method: 'PUT',
-        body: JSON.stringify({ canCredit: credit, canDebit: debit, canView: view }),
+        body: JSON.stringify({
+          canCredit: credit,
+          canDebit: debit,
+          canView: view,
+        }),
       });
       setAccessItems((items) => [
         ...items.filter((item) => item.userId !== selectedUserId),
-        { userId: selectedUserId, canCredit: credit, canDebit: debit, canView: view },
+        {
+          userId: selectedUserId,
+          canCredit: credit,
+          canDebit: debit,
+          canView: view,
+        },
       ]);
       setMessage('Права доступа сохранены');
     } catch (caught) {
@@ -1279,7 +1305,9 @@ function ArtifactFormBuilder({ eventId }: { eventId: string }) {
                     <input
                       value={field.minLength}
                       onChange={(event) =>
-                        updateField(field.id, { minLength: event.target.value.replace(/\D/g, '') })
+                        updateField(field.id, {
+                          minLength: event.target.value.replace(/\D/g, ''),
+                        })
                       }
                       inputMode="numeric"
                     />
@@ -1289,7 +1317,9 @@ function ArtifactFormBuilder({ eventId }: { eventId: string }) {
                     <input
                       value={field.maxLength}
                       onChange={(event) =>
-                        updateField(field.id, { maxLength: event.target.value.replace(/\D/g, '') })
+                        updateField(field.id, {
+                          maxLength: event.target.value.replace(/\D/g, ''),
+                        })
                       }
                       inputMode="numeric"
                     />
@@ -1303,7 +1333,9 @@ function ArtifactFormBuilder({ eventId }: { eventId: string }) {
                     <input
                       value={field.minItems}
                       onChange={(event) =>
-                        updateField(field.id, { minItems: event.target.value.replace(/\D/g, '') })
+                        updateField(field.id, {
+                          minItems: event.target.value.replace(/\D/g, ''),
+                        })
                       }
                       inputMode="numeric"
                     />
@@ -1313,7 +1345,9 @@ function ArtifactFormBuilder({ eventId }: { eventId: string }) {
                     <input
                       value={field.maxItems}
                       onChange={(event) =>
-                        updateField(field.id, { maxItems: event.target.value.replace(/\D/g, '') })
+                        updateField(field.id, {
+                          maxItems: event.target.value.replace(/\D/g, ''),
+                        })
                       }
                       inputMode="numeric"
                     />
@@ -1331,7 +1365,9 @@ function ArtifactFormBuilder({ eventId }: { eventId: string }) {
                     <input
                       value={field.extensions}
                       onChange={(event) =>
-                        updateField(field.id, { extensions: event.target.value })
+                        updateField(field.id, {
+                          extensions: event.target.value,
+                        })
                       }
                       placeholder="png, pdf"
                     />
@@ -1536,7 +1572,9 @@ function ProductMediaDropzone({
                   value={draft.sortOrder}
                   disabled={draft.status === 'uploading' || draft.status === 'done'}
                   onChange={(event) =>
-                    onChange(draft.id, { sortOrder: event.target.value.replace(/\D/g, '') })
+                    onChange(draft.id, {
+                      sortOrder: event.target.value.replace(/\D/g, ''),
+                    })
                   }
                   inputMode="numeric"
                 />
@@ -1847,7 +1885,12 @@ function ProductBuilder() {
       setDrafts((items) =>
         items.map((item) =>
           item.id === draft.id
-            ? { ...item, status: 'error', error: unavailableMessage(caught), mediaId }
+            ? {
+                ...item,
+                status: 'error',
+                error: unavailableMessage(caught),
+                mediaId,
+              }
             : item,
         ),
       );
@@ -1925,7 +1968,10 @@ function ProductBuilder() {
         await api(`/admin/store/products/${encodeURIComponent(product.id)}/inventory`, {
           method: 'POST',
           headers: { 'Idempotency-Key': crypto.randomUUID() },
-          body: JSON.stringify({ quantity: Number(form.stock), reason: 'Начальный остаток' }),
+          body: JSON.stringify({
+            quantity: Number(form.stock),
+            reason: 'Начальный остаток',
+          }),
         });
       }
       const selectedCategory = categories.find((item) => item.id === form.categoryId) ?? null;
@@ -1987,7 +2033,10 @@ function ProductBuilder() {
       setProducts((items) =>
         items.map((product) =>
           product.id === productId
-            ? { ...product, media: (product.media ?? []).filter((media) => media.id !== mediaId) }
+            ? {
+                ...product,
+                media: (product.media ?? []).filter((media) => media.id !== mediaId),
+              }
             : product,
         ),
       );
@@ -2009,7 +2058,10 @@ function ProductBuilder() {
       await api(`/admin/store/products/${encodeURIComponent(product.id)}/media/reorder`, {
         method: 'PUT',
         body: JSON.stringify({
-          items: reordered.map((item) => ({ id: item.id, sortOrder: item.sortOrder })),
+          items: reordered.map((item) => ({
+            id: item.id,
+            sortOrder: item.sortOrder,
+          })),
         }),
       });
     } catch (caught) {
@@ -2088,7 +2140,10 @@ function ProductBuilder() {
                   placeholder="Название"
                   value={categoryDraft.title}
                   onChange={(event) =>
-                    setCategoryDraft((value) => ({ ...value, title: event.target.value }))
+                    setCategoryDraft((value) => ({
+                      ...value,
+                      title: event.target.value,
+                    }))
                   }
                 />
                 <input
@@ -2116,7 +2171,10 @@ function ProductBuilder() {
               <select
                 value={form.kind}
                 onChange={(event) =>
-                  setForm({ ...form, kind: event.target.value as typeof form.kind })
+                  setForm({
+                    ...form,
+                    kind: event.target.value as typeof form.kind,
+                  })
                 }
               >
                 <option value="physical">Физический</option>
@@ -2137,7 +2195,10 @@ function ProductBuilder() {
               <input
                 value={form.price}
                 onChange={(event) =>
-                  setForm({ ...form, price: event.target.value.replace(/\D/g, '') })
+                  setForm({
+                    ...form,
+                    price: event.target.value.replace(/\D/g, ''),
+                  })
                 }
                 inputMode="numeric"
                 required
@@ -2148,7 +2209,10 @@ function ProductBuilder() {
               <input
                 value={form.perUserLimit}
                 onChange={(event) =>
-                  setForm({ ...form, perUserLimit: event.target.value.replace(/\D/g, '') })
+                  setForm({
+                    ...form,
+                    perUserLimit: event.target.value.replace(/\D/g, ''),
+                  })
                 }
                 inputMode="numeric"
               />
@@ -2158,7 +2222,10 @@ function ProductBuilder() {
               <select
                 value={form.stockMode}
                 onChange={(event) =>
-                  setForm({ ...form, stockMode: event.target.value as typeof form.stockMode })
+                  setForm({
+                    ...form,
+                    stockMode: event.target.value as typeof form.stockMode,
+                  })
                 }
               >
                 <option value="limited">Ограниченный</option>
@@ -2171,7 +2238,10 @@ function ProductBuilder() {
                 <input
                   value={form.stock}
                   onChange={(event) =>
-                    setForm({ ...form, stock: event.target.value.replace(/\D/g, '') })
+                    setForm({
+                      ...form,
+                      stock: event.target.value.replace(/\D/g, ''),
+                    })
                   }
                   inputMode="numeric"
                 />
@@ -2272,32 +2342,7 @@ function ProductBuilder() {
                 <HtmlDesignPreview html={form.cardHtml} />
               </div>
             ) : null}
-            <AdminCardPackageUploader
-              entityType="product"
-              entityId={editingProductId}
-              packageId={form.cardPackageId}
-              title={form.title || 'Товар'}
-              onApplied={(cardPackageId) => {
-                setForm((current) => ({ ...current, cardPackageId }));
-                if (editingProductId) {
-                  setProducts((items) =>
-                    items.map((item) =>
-                      item.id === editingProductId ? { ...item, cardPackageId } : item,
-                    ),
-                  );
-                }
-              }}
-              onRemoved={() => {
-                setForm((current) => ({ ...current, cardPackageId: null }));
-                if (editingProductId) {
-                  setProducts((items) =>
-                    items.map((item) =>
-                      item.id === editingProductId ? { ...item, cardPackageId: null } : item,
-                    ),
-                  );
-                }
-              }}
-            />
+
             <label className="admin-wide">
               <span>Инструкция по выдаче</span>
               <textarea
@@ -2330,7 +2375,10 @@ function ProductBuilder() {
                 value={form.status}
                 disabled={form.kind === 'digital'}
                 onChange={(event) =>
-                  setForm({ ...form, status: event.target.value as WalletProduct['status'] })
+                  setForm({
+                    ...form,
+                    status: event.target.value as WalletProduct['status'],
+                  })
                 }
               >
                 <option value="draft">Черновик</option>
@@ -2344,7 +2392,10 @@ function ProductBuilder() {
               <input
                 value={form.sortOrder}
                 onChange={(event) =>
-                  setForm({ ...form, sortOrder: event.target.value.replace(/\D/g, '') })
+                  setForm({
+                    ...form,
+                    sortOrder: event.target.value.replace(/\D/g, ''),
+                  })
                 }
                 inputMode="numeric"
               />
@@ -2495,6 +2546,7 @@ function ProductBuilder() {
 
 function OrdersBoard() {
   type AdminOrder = {
+    comment: string | null;
     id: string;
     status: WalletOrder['status'];
     totalPoints: string;
@@ -2519,7 +2571,9 @@ function OrdersBoard() {
     let disposed = false;
     void import('@zxing/browser')
       .then(async ({ BrowserQRCodeReader }) => {
-        const reader = new BrowserQRCodeReader(undefined, { delayBetweenScanAttempts: 180 });
+        const reader = new BrowserQRCodeReader(undefined, {
+          delayBetweenScanAttempts: 180,
+        });
         const controls = await reader.decodeFromVideoDevice(
           undefined,
           pickupVideoRef.current!,
@@ -2605,10 +2659,14 @@ function OrdersBoard() {
   const advance = async (order: AdminOrder, status: 'ready_for_pickup' | 'fulfilled') => {
     setMessage(null);
     try {
-      const updated = await api<{ id: string; status: AdminOrder['status']; totalPoints: string }>(
-        `/admin/store/orders/${encodeURIComponent(order.id)}/status`,
-        { method: 'PATCH', body: JSON.stringify({ status }) },
-      );
+      const updated = await api<{
+        id: string;
+        status: AdminOrder['status'];
+        totalPoints: string;
+      }>(`/admin/store/orders/${encodeURIComponent(order.id)}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
+      });
       setOrders((items) =>
         items.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)),
       );
@@ -2690,7 +2748,12 @@ function OrdersBoard() {
             <tbody>
               {orders.map((order) => (
                 <tr key={order.id}>
-                  <td>{order.id.slice(0, 8)}</td>
+                  <td>
+                    {order.id.slice(0, 8)}
+                    {order.comment ? (
+                      <small style={{ whiteSpace: 'pre-line' }}>{order.comment}</small>
+                    ) : null}
+                  </td>
                   <td>
                     {order.user.displayName}
                     <small>{order.user.username ? `@${order.user.username}` : order.user.id}</small>
@@ -2730,7 +2793,6 @@ function OrdersBoard() {
 
 function FeedBuilder() {
   const [posts, setPosts] = useState<AdminFeedPost[]>([]);
-  const [packageTarget, setPackageTarget] = useState<AdminFeedPost | null>(null);
   const [form, setForm] = useState({
     kind: 'news' as AdminFeedPost['kind'],
     audience: 'all' as AdminFeedPost['audience'],
@@ -2793,7 +2855,6 @@ function FeedBuilder() {
         }),
       });
       setPosts((items) => [post, ...items]);
-      setPackageTarget(post);
       setForm((value) => ({
         ...value,
         title: '',
@@ -2851,7 +2912,10 @@ function FeedBuilder() {
               <select
                 value={form.kind}
                 onChange={(event) =>
-                  setForm({ ...form, kind: event.target.value as AdminFeedPost['kind'] })
+                  setForm({
+                    ...form,
+                    kind: event.target.value as AdminFeedPost['kind'],
+                  })
                 }
               >
                 <option value="news">Новость</option>
@@ -2865,7 +2929,10 @@ function FeedBuilder() {
               <select
                 value={form.audience}
                 onChange={(event) =>
-                  setForm({ ...form, audience: event.target.value as AdminFeedPost['audience'] })
+                  setForm({
+                    ...form,
+                    audience: event.target.value as AdminFeedPost['audience'],
+                  })
                 }
               >
                 <option value="all">Все</option>
@@ -2895,7 +2962,10 @@ function FeedBuilder() {
               <select
                 value={form.bodyFormat}
                 onChange={(event) =>
-                  setForm({ ...form, bodyFormat: event.target.value as 'text' | 'html' })
+                  setForm({
+                    ...form,
+                    bodyFormat: event.target.value as 'text' | 'html',
+                  })
                 }
               >
                 <option value="text">Обычный текст</option>
@@ -2932,30 +3002,7 @@ function FeedBuilder() {
                 <HtmlDesignPreview html={form.cardHtml} />
               </div>
             ) : null}
-            <AdminCardPackageUploader
-              entityType="feed_post"
-              entityId={packageTarget?.id ?? null}
-              packageId={packageTarget?.cardPackageId ?? null}
-              title={packageTarget?.title ?? (form.title || 'Публикация')}
-              onApplied={(cardPackageId) => {
-                setPackageTarget((current) => (current ? { ...current, cardPackageId } : current));
-                setPosts((items) =>
-                  items.map((item) =>
-                    item.id === packageTarget?.id ? { ...item, cardPackageId } : item,
-                  ),
-                );
-              }}
-              onRemoved={() => {
-                setPackageTarget((current) =>
-                  current ? { ...current, cardPackageId: null } : current,
-                );
-                setPosts((items) =>
-                  items.map((item) =>
-                    item.id === packageTarget?.id ? { ...item, cardPackageId: null } : item,
-                  ),
-                );
-              }}
-            />
+
             <label className="admin-wide">
               <span>Обложка в Beget S3</span>
               <input
@@ -3041,13 +3088,6 @@ function FeedBuilder() {
                   <strong>{post.title}</strong>
                   <p>{post.summary ?? post.body.slice(0, 160)}</p>
                   <div className="feed-admin-main-actions">
-                    <button
-                      type="button"
-                      className="secondary-button compact-button"
-                      onClick={() => setPackageTarget(post)}
-                    >
-                      {post.cardPackageId ? 'Открыть ZIP-оформление' : 'Добавить ZIP-оформление'}
-                    </button>
                     {post.kind === 'news' &&
                     post.status === 'published' &&
                     post.audience === 'all' &&
@@ -3174,7 +3214,10 @@ function WalletSettings() {
       }>('/admin/wallet/resets/preview', {
         method: 'POST',
         headers: { 'Idempotency-Key': crypto.randomUUID() },
-        body: JSON.stringify({ targetOpeningAmount: 0, reason: resetReason.trim() }),
+        body: JSON.stringify({
+          targetOpeningAmount: 0,
+          reason: resetReason.trim(),
+        }),
       });
       setResetPreview(preview);
       setMessage('Предпросмотр готов. Проверьте число счетов и сумму.');
@@ -3242,7 +3285,10 @@ function WalletSettings() {
             <input
               value={form.welcomeAmount}
               onChange={(event) =>
-                setForm({ ...form, welcomeAmount: event.target.value.replace(/\D/g, '') })
+                setForm({
+                  ...form,
+                  welcomeAmount: event.target.value.replace(/\D/g, ''),
+                })
               }
               inputMode="numeric"
               required
@@ -3301,7 +3347,10 @@ function WalletSettings() {
             <input
               value={form.maxTransactionAmount}
               onChange={(event) =>
-                setForm({ ...form, maxTransactionAmount: event.target.value.replace(/\D/g, '') })
+                setForm({
+                  ...form,
+                  maxTransactionAmount: event.target.value.replace(/\D/g, ''),
+                })
               }
               inputMode="numeric"
             />
@@ -3311,7 +3360,10 @@ function WalletSettings() {
             <input
               value={form.qrTtlSeconds}
               onChange={(event) =>
-                setForm({ ...form, qrTtlSeconds: event.target.value.replace(/\D/g, '') })
+                setForm({
+                  ...form,
+                  qrTtlSeconds: event.target.value.replace(/\D/g, ''),
+                })
               }
               inputMode="numeric"
             />
@@ -3321,7 +3373,10 @@ function WalletSettings() {
             <input
               value={form.intentTtlSeconds}
               onChange={(event) =>
-                setForm({ ...form, intentTtlSeconds: event.target.value.replace(/\D/g, '') })
+                setForm({
+                  ...form,
+                  intentTtlSeconds: event.target.value.replace(/\D/g, ''),
+                })
               }
               inputMode="numeric"
             />

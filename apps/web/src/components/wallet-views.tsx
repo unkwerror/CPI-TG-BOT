@@ -1,5 +1,4 @@
 'use client';
-
 import Image from 'next/image';
 import QRCode from 'qrcode';
 import {
@@ -51,14 +50,14 @@ import {
 } from './icons';
 import { StartupStudioLogo } from './startup-studio-logo';
 import { LeaderIdCard } from './leader-id-card';
+import { CoworkingRail } from './coworking';
+import { isCatalystTee, CatalystTeeGallery, CatalystTeeOptions } from './catalyst-merch';
 import { formatWalletAmount, useWalletProgram } from './wallet-program-context';
-import { CardPackageFrame, RichHtml, type CardPackageFields } from './rich-html';
+import { RichHtml } from './rich-html';
 import { EntityActionDock, EntityBackButton } from './entity-action-dock';
-
 export type WalletDestination =
   'home' | 'events' | 'projects' | 'store' | 'history' | 'mine' | 'profile';
 export type WalletQrMode = 'menu' | 'show' | 'scan';
-
 export function StoreNavigationButton({
   active,
   onClick,
@@ -80,16 +79,13 @@ export function StoreNavigationButton({
     </m.button>
   );
 }
-
 const MAX_SAFE_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
-
 function safeWalletNumber(value: string): number | null {
   if (!/^-?\d+$/.test(value.trim())) return null;
   const integer = BigInt(value);
   if (integer > MAX_SAFE_BIGINT || integer < -MAX_SAFE_BIGINT) return null;
   return Number(integer);
 }
-
 function AnimatedBalance({ value }: { value: string }) {
   const reducedMotion = useReducedMotion();
   const initial = safeWalletNumber(value);
@@ -97,11 +93,9 @@ function AnimatedBalance({ value }: { value: string }) {
   const spring = useSpring(source, { stiffness: 175, damping: 26, mass: 0.75 });
   const [display, setDisplay] = useState(value);
   const animating = useRef(initial !== null && !reducedMotion);
-
   useMotionValueEvent(spring, 'change', (latest) => {
     if (animating.current) setDisplay(Math.round(latest).toString());
   });
-
   useEffect(() => {
     const target = safeWalletNumber(value);
     animating.current = target !== null && !reducedMotion;
@@ -111,14 +105,12 @@ function AnimatedBalance({ value }: { value: string }) {
     }
     source.set(target);
   }, [reducedMotion, source, value]);
-
   return (
     <span className="wallet-animated-balance" aria-label={formatWalletAmount(value)}>
       <span aria-hidden="true">{formatWalletAmount(display)}</span>
     </span>
   );
 }
-
 function initials(name: string | null): string {
   const parts = name?.trim().split(/\s+/).filter(Boolean) ?? [];
   return (
@@ -128,7 +120,6 @@ function initials(name: string | null): string {
       .join('') || 'Я'
   );
 }
-
 function transactionLabel(kind: WalletTransaction['kind']): string {
   const labels: Record<WalletTransaction['kind'], string> = {
     welcome_grant: 'Стартовое начисление',
@@ -144,66 +135,27 @@ function transactionLabel(kind: WalletTransaction['kind']): string {
   };
   return labels[kind];
 }
-
 function isDebit(delta: string): boolean {
   return delta.trim().startsWith('-');
 }
-
 function absoluteDecimal(delta: string): string {
   return delta.trim().replace(/^[+-]/, '') || '0';
 }
-
-const packageFieldLabels: Record<string, string> = {
-  size: 'Размер',
-  color: 'Цвет',
-  colour: 'Цвет',
-  view: 'Ракурс',
-  variant: 'Вариант',
-  material: 'Материал',
-  format: 'Формат',
-  quantity: 'Количество',
-};
-
-const packageFieldValues: Record<string, string> = {
-  dark: 'тёмный',
-  light: 'светлый',
-  front: 'спереди',
-  back: 'сзади',
-};
-
-function readablePackageField(value: string): string {
-  const spaced = value
-    .replace(/([a-z\d])([A-Z])/gu, '$1 $2')
-    .replace(/[_-]+/gu, ' ')
-    .trim();
-  return spaced ? `${spaced[0]!.toUpperCase()}${spaced.slice(1)}` : value;
-}
-
-function packageOrderComment(fields: CardPackageFields): string | null {
-  const lines = Object.entries(fields).map(([key, value]) => {
-    const normalizedKey = key.toLocaleLowerCase('ru-RU');
-    const label = packageFieldLabels[normalizedKey] ?? readablePackageField(key);
-    const normalizedValue = value.toLocaleLowerCase('ru-RU');
-    return `${label}: ${packageFieldValues[normalizedValue] ?? value}`;
-  });
-  if (lines.length === 0) return null;
-  return `Параметры из ZIP-карточки:\n${lines.join('\n')}`.slice(0, 2_000);
-}
-
 function closeMessengerScanner(): void {
   getMessengerAdapter()?.closeQrScanner();
 }
-
 function signedAmount(item: WalletTransaction, withUnit: (value: string) => string): string {
   const outgoing = isDebit(item.delta);
   const sign = outgoing ? '−' : '+';
   return `${sign}${withUnit(absoluteDecimal(item.delta))}`;
 }
-
 type RewardAwareEvent = EventItem & {
-  rewardPolicy?: { active: boolean; amount: string; trigger: 'artifact_ready' } | null;
+  rewardPolicy?: {
+    active: boolean;
+    amount: string;
+    trigger: 'artifact_ready';
+  } | null;
 };
-
 export function WalletHome({
   user,
   onNavigate,
@@ -226,12 +178,13 @@ export function WalletHome({
   const [feed, setFeed] = useState<WalletFeedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPost, setSelectedPost] = useState<WalletFeedItem | null>(null);
-
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
       const [eventsResult, feedResult] = await Promise.allSettled([
-        api<{ items: RewardAwareEvent[] }>('/events?limit=6'),
+        api<{
+          items: RewardAwareEvent[];
+        }>('/events?limit=6'),
         api<PaginatedWalletResponse<WalletFeedItem>>('/feed?limit=8'),
       ]);
       if (cancelled) return;
@@ -244,7 +197,6 @@ export function WalletHome({
       cancelled = true;
     };
   }, []);
-
   const eventFeed = useMemo<WalletFeedItem[]>(
     () =>
       events.slice(0, 3).map((event) => ({
@@ -264,7 +216,6 @@ export function WalletHome({
   const earningEvents = events.filter(
     (event) => event.rewardPolicy?.active && event.acceptsUploads,
   );
-
   const openLeaderIdAuthorization = useCallback(
     (url: string) => {
       const normalized = normalizeExternalUrl(url);
@@ -274,7 +225,6 @@ export function WalletHome({
     },
     [messenger],
   );
-
   const openFeedItem = async (item: WalletFeedItem) => {
     if (item.eventId || item.kind === 'event') {
       const matchingEvent = events.find(
@@ -304,15 +254,13 @@ export function WalletHome({
     if (messenger) messenger.openLink(normalized);
     else window.open(normalized, '_blank', 'noopener,noreferrer');
   };
-
   const openFeedCard = (item: WalletFeedItem) => {
-    if (item.source === 'post' || item.cardPackageId || item.cardHtml) {
+    if (item.source === 'post' || item.cardHtml) {
       setSelectedPost(item);
       return;
     }
     void openFeedItem(item);
   };
-
   return (
     <section className="wallet-screen wallet-home" aria-labelledby="wallet-home-title">
       <header className="wallet-topbar">
@@ -401,9 +349,10 @@ export function WalletHome({
       </div>
 
       <div id="leader-id-catalyst" className="wallet-leader-id-anchor" tabIndex={-1}>
-        <LeaderIdCard openAuthorization={openLeaderIdAuthorization} />
+        <LeaderIdCard hideWhenLinked openAuthorization={openLeaderIdAuthorization} />
       </div>
 
+      <CoworkingRail />
       <section className="wallet-section" aria-labelledby="earn-title">
         <div className="wallet-section-heading">
           <div>
@@ -565,7 +514,7 @@ export function WalletHome({
       <AnimatePresence>
         {selectedPost ? (
           <m.div
-            className={`wallet-dialog-backdrop wallet-content-backdrop${selectedPost.cardPackageId ? ' wallet-content-package-backdrop' : ''}`}
+            className={`wallet-dialog-backdrop wallet-content-backdrop${''}`}
             role="presentation"
             onMouseDown={() => setSelectedPost(null)}
             initial={{ opacity: 0 }}
@@ -573,16 +522,16 @@ export function WalletHome({
             exit={{ opacity: 0 }}
           >
             <m.article
-              className={`wallet-dialog wallet-content-sheet${selectedPost.cardPackageId ? ' wallet-content-sheet--package' : ''}`}
+              className={`wallet-dialog wallet-content-sheet${''}`}
               role="dialog"
               aria-modal="true"
               aria-labelledby="feed-detail-title"
               onMouseDown={(event) => event.stopPropagation()}
-              initial={{ opacity: 0, y: selectedPost.cardPackageId ? 0 : 44 }}
+              initial={{ opacity: 0, y: 44 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 44 }}
             >
-              {!selectedPost.cardPackageId ? <span className="wallet-dialog-handle" /> : null}
+              {<span className="wallet-dialog-handle" />}
               <button
                 type="button"
                 className="wallet-dialog-close"
@@ -591,28 +540,9 @@ export function WalletHome({
               >
                 ×
               </button>
-              {selectedPost.cardPackageId ? (
-                <CardPackageFrame
-                  packageId={selectedPost.cardPackageId}
-                  title={`Оформление публикации: ${selectedPost.title}`}
-                  interactive
-                  fullscreen
-                  onAction={() => {
-                    const item = selectedPost;
-                    setSelectedPost(null);
-                    void openFeedItem(item);
-                  }}
-                  onLink={onOpenInternalLink}
-                />
-              ) : null}
-              <div
-                className={
-                  selectedPost.cardPackageId ? 'wallet-content-package-details' : undefined
-                }
-              >
-                {selectedPost.imageUrl && !selectedPost.cardPackageId ? (
-                  <img className="wallet-content-cover" src={selectedPost.imageUrl} alt="" />
-                ) : null}
+              {null}
+              <div className={undefined}>
+                {null}
                 <p className="wallet-kicker">
                   {selectedPost.kind === 'event'
                     ? 'Мероприятие'
@@ -624,24 +554,22 @@ export function WalletHome({
                 <small className="wallet-content-date">
                   {formatNovosibirskDateTime(selectedPost.publishedAt)}
                 </small>
-                {!selectedPost.cardPackageId ? (
-                  selectedPost.bodyFormat === 'html' ? (
-                    <RichHtml
-                      className="wallet-rich-content"
-                      html={selectedPost.body ?? ''}
-                      onAction={() => {
-                        const item = selectedPost;
-                        setSelectedPost(null);
-                        void openFeedItem(item);
-                      }}
-                      onLink={onOpenInternalLink}
-                    />
-                  ) : (
-                    <p className="wallet-rich-content wallet-rich-content--text">
-                      {selectedPost.body || selectedPost.summary}
-                    </p>
-                  )
-                ) : null}
+                {selectedPost.bodyFormat === 'html' ? (
+                  <RichHtml
+                    className="wallet-rich-content"
+                    html={selectedPost.body ?? ''}
+                    onAction={() => {
+                      const item = selectedPost;
+                      setSelectedPost(null);
+                      void openFeedItem(item);
+                    }}
+                    onLink={onOpenInternalLink}
+                  />
+                ) : (
+                  <p className="wallet-rich-content wallet-rich-content--text">
+                    {selectedPost.body || selectedPost.summary}
+                  </p>
+                )}
                 {selectedPost.eventId || selectedPost.productId || selectedPost.actionUrl ? (
                   <Button
                     type="button"
@@ -704,7 +632,6 @@ export function WalletHome({
     </section>
   );
 }
-
 export function StoreView({
   initialProductKey = null,
   onInitialProductHandled,
@@ -722,7 +649,8 @@ export function StoreView({
   const [category, setCategory] = useState('Все');
   const [selected, setSelected] = useState<WalletProduct | null>(null);
   const [selectedMediaIndex, setSelectedMediaIndex] = useState(0);
-  const [packageFields, setPackageFields] = useState<CardPackageFields>({});
+  const [teeColor, setTeeColor] = useState<'dark' | 'light'>('dark');
+  const [teeSize, setTeeSize] = useState('M');
   const [message, setMessage] = useState<string | null>(null);
   const [ordering, setOrdering] = useState(false);
   const [pickupQr, setPickupQr] = useState<{
@@ -738,7 +666,6 @@ export function StoreView({
   const checkoutAttemptRef = useRef<IdempotencyAttempt | null>(null);
   const pickupAttemptRef = useRef<IdempotencyAttempt | null>(null);
   const pickupQrAttemptRef = useRef<IdempotencyAttempt | null>(null);
-
   useEffect(() => {
     if (programLoading) return;
     if (!summary?.program.storeEnabled) {
@@ -767,13 +694,11 @@ export function StoreView({
       cancelled = true;
     };
   }, [programLoading, summary?.program.storeEnabled]);
-
   useEffect(() => {
     if (!pickupQr) return;
     const timer = window.setInterval(() => setPickupNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [pickupQr]);
-
   const categories = useMemo(
     () => [
       'Все',
@@ -785,11 +710,17 @@ export function StoreView({
     category === 'Все' ? products : products.filter((item) => item.category?.title === category);
   const selectedImages = useMemo(() => {
     if (!selected) return [];
-    const images: Array<{ url: string; altText: string }> = [];
+    const images: Array<{
+      url: string;
+      altText: string;
+    }> = [];
     const seen = new Set<string>();
     for (const image of [
       selected.coverUrl || selected.imageUrl
-        ? { url: selected.coverUrl ?? selected.imageUrl ?? '', altText: selected.title }
+        ? {
+            url: selected.coverUrl ?? selected.imageUrl ?? '',
+            altText: selected.title,
+          }
         : null,
       ...(selected.media ?? []).map((item) => ({
         url: item.url,
@@ -802,15 +733,14 @@ export function StoreView({
     }
     return images;
   }, [selected]);
-
   const openProduct = (product: WalletProduct) => {
     if (storeMutationRef.current) return;
     checkoutAttemptRef.current = null;
     setSelected(product);
     setSelectedMediaIndex(0);
-    setPackageFields({});
+    setTeeColor('dark');
+    setTeeSize('M');
   };
-
   useEffect(() => {
     if (!initialProductKey || loading) return;
     const product = products.find(
@@ -820,35 +750,37 @@ export function StoreView({
       checkoutAttemptRef.current = null;
       setSelected(product);
       setSelectedMediaIndex(0);
-      setPackageFields({});
+      setTeeColor('dark');
+      setTeeSize('M');
     } else {
       setMessage('Товар по этой ссылке не найден');
     }
     onInitialProductHandled?.();
   }, [initialProductKey, loading, onInitialProductHandled, products]);
-
   const beginStoreMutation = (mutation: string): boolean => {
     if (storeMutationRef.current) return false;
     storeMutationRef.current = mutation;
     setOrdering(true);
     return true;
   };
-
   const finishStoreMutation = (mutation: string): void => {
     if (storeMutationRef.current !== mutation) return;
     storeMutationRef.current = null;
     setOrdering(false);
   };
-
   const closeSelectedProduct = (): void => {
     if (storeMutationRef.current) return;
     checkoutAttemptRef.current = null;
     setSelected(null);
   };
-
-  const placeOrder = async (fields: CardPackageFields = packageFields) => {
+  const placeOrder = async () => {
     if (!selected) return;
-    const comment = packageOrderComment(fields);
+    const comment = isCatalystTee(selected)
+      ? 'Футболка Catalyst\nЦвет: ' +
+        (teeColor === 'dark' ? 'Тёмный' : 'Светлый') +
+        '\nРазмер: ' +
+        teeSize
+      : null;
     const body = JSON.stringify({
       items: [{ productId: selected.id, quantity: 1 }],
       ...(comment ? { comment } : {}),
@@ -871,7 +803,8 @@ export function StoreView({
           ? 'Оплата прошла. Оставьте заявку на выдачу ниже.'
           : 'Заказ создан, заявка на выдачу принята.',
       );
-      setPackageFields({});
+      setTeeColor('dark');
+      setTeeSize('M');
       setSelected(null);
       getMessengerAdapter()?.notify('success');
     } catch (caught) {
@@ -880,7 +813,6 @@ export function StoreView({
       finishStoreMutation(mutation);
     }
   };
-
   const requestPickup = async (order: WalletOrder) => {
     const body = JSON.stringify({});
     const mutation = `pickup:${order.id}`;
@@ -906,7 +838,6 @@ export function StoreView({
       finishStoreMutation(mutation);
     }
   };
-
   const showPickupQr = async (order: WalletOrder) => {
     const body = JSON.stringify({});
     const mutation = `pickup-qr:${order.id}`;
@@ -941,11 +872,9 @@ export function StoreView({
       finishStoreMutation(mutation);
     }
   };
-
   const pickupSecondsLeft = pickupQr
     ? Math.max(0, Math.ceil((new Date(pickupQr.expiresAt).getTime() - pickupNow) / 1000))
     : 0;
-
   return (
     <section className="wallet-screen" aria-labelledby="store-title">
       <header className="wallet-page-header">
@@ -985,7 +914,7 @@ export function StoreView({
           ) : visible.length ? (
             <m.div className="wallet-product-grid" layout>
               {visible.map((product, index) => {
-                if (product.cardHtml) {
+                if (product.cardHtml && !isCatalystTee(product)) {
                   return (
                     <m.div
                       className="wallet-product-card wallet-custom-card"
@@ -1017,7 +946,10 @@ export function StoreView({
                 return (
                   <m.button
                     type="button"
-                    className="wallet-product-card"
+                    className={
+                      'wallet-product-card' +
+                      (isCatalystTee(product) ? ' catalyst-product-card' : '')
+                    }
                     key={product.id}
                     aria-label={`Открыть товар «${product.title}»`}
                     onClick={() => openProduct(product)}
@@ -1029,7 +961,20 @@ export function StoreView({
                     <div
                       className={`wallet-product-image wallet-product-image--${(index % 3) + 1}`}
                     >
-                      {product.coverUrl || product.imageUrl || product.media?.[0]?.url ? (
+                      {isCatalystTee(product) ? (
+                        <>
+                          <span className="catalyst-drop-label">CATALYST / MERCH</span>
+                          <img
+                            src="/merch/tee-dark-front.webp"
+                            alt="Футболка Catalyst с маскотом"
+                          />
+                          <span className="catalyst-card-sticker">
+                            СОЗДАВАЙ.
+                            <br />
+                            НОСИ.
+                          </span>
+                        </>
+                      ) : product.coverUrl || product.imageUrl || product.media?.[0]?.url ? (
                         <img
                           src={
                             product.coverUrl ?? product.imageUrl ?? product.media?.[0]?.url ?? ''
@@ -1138,7 +1083,7 @@ export function StoreView({
           <AnimatePresence>
             {selected ? (
               <m.div
-                className={`wallet-dialog-backdrop${selected.cardPackageId ? ' wallet-product-package-backdrop' : ''}`}
+                className={`wallet-dialog-backdrop${''}`}
                 role="presentation"
                 onMouseDown={closeSelectedProduct}
                 initial={{ opacity: 0 }}
@@ -1146,7 +1091,7 @@ export function StoreView({
                 exit={{ opacity: 0 }}
               >
                 <m.section
-                  className={`wallet-dialog wallet-product-sheet${selected.cardPackageId ? ' wallet-product-sheet--package' : ''}`}
+                  className={`wallet-dialog wallet-product-sheet${''}`}
                   role="dialog"
                   aria-modal="true"
                   aria-labelledby="order-title"
@@ -1155,7 +1100,7 @@ export function StoreView({
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 36 }}
                 >
-                  {!selected.cardPackageId ? <span className="wallet-dialog-handle" /> : null}
+                  {<span className="wallet-dialog-handle" />}
                   <button
                     type="button"
                     className="wallet-dialog-close"
@@ -1165,18 +1110,14 @@ export function StoreView({
                   >
                     ×
                   </button>
-                  {selected.cardPackageId ? (
-                    <CardPackageFrame
-                      packageId={selected.cardPackageId}
-                      title={`Оформление товара: ${selected.title}`}
-                      interactive
-                      fullscreen
-                      onFieldsChange={setPackageFields}
-                      onAction={(fields) => void placeOrder(fields)}
-                      {...(onOpenInternalLink ? { onLink: onOpenInternalLink } : {})}
-                    />
-                  ) : (
-                    <div className="wallet-product-gallery">
+                  {
+                    <div
+                      className={
+                        'wallet-product-gallery' +
+                        (isCatalystTee(selected) ? ' catalyst-native-gallery' : '')
+                      }
+                    >
+                      {isCatalystTee(selected) ? <CatalystTeeGallery color={teeColor} /> : null}
                       <div className="wallet-product-gallery__main">
                         {selectedImages[selectedMediaIndex] ? (
                           <img
@@ -1206,16 +1147,19 @@ export function StoreView({
                         </div>
                       ) : null}
                     </div>
-                  )}
-                  <div
-                    className={
-                      selected.cardPackageId
-                        ? 'wallet-product-package-details'
-                        : 'wallet-product-standard-details'
-                    }
-                  >
+                  }
+                  <div className={'wallet-product-standard-details'}>
                     <p className="wallet-kicker">{selected.category?.title ?? 'Каталог'}</p>
                     <h2 id="order-title">{selected.title}</h2>
+                    {isCatalystTee(selected) ? (
+                      <CatalystTeeOptions
+                        color={teeColor}
+                        size={teeSize}
+                        onColorChange={setTeeColor}
+                        onSizeChange={setTeeSize}
+                        disabled={ordering}
+                      />
+                    ) : null}
                     {selected.descriptionFormat === 'html' ? (
                       <RichHtml
                         className="wallet-rich-content"
@@ -1234,16 +1178,10 @@ export function StoreView({
                         <p>{selected.pickupInstructions}</p>
                       </div>
                     ) : null}
-                    {selected.cardPackageId && Object.keys(packageFields).length ? (
-                      <div className="wallet-product-package-selection">
-                        <strong>Выбрано в карточке</strong>
-                        <p>
-                          {packageOrderComment(packageFields)?.replace(
-                            'Параметры из ZIP-карточки:\n',
-                            '',
-                          )}
-                        </p>
-                      </div>
+                    {message ? (
+                      <p className="wallet-notice" role="alert">
+                        {message}
+                      </p>
                     ) : null}
                     <div className="wallet-product-checkout-summary">
                       <span>Стоимость</span>
@@ -1357,25 +1295,21 @@ export function StoreView({
     </section>
   );
 }
-
 export function HistoryView() {
   const { withUnit } = useWalletProgram();
   const [items, setItems] = useState<WalletTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'income' | 'expense'>('all');
-
   useEffect(() => {
     void api<WalletHistoryResponse>('/wallet/history?limit=100')
       .then((result) => setItems(result.items))
       .catch(() => setItems([]))
       .finally(() => setLoading(false));
   }, []);
-
   const visible = items.filter((item) => {
     const outgoing = isDebit(item.delta);
     return filter === 'all' || (filter === 'expense' ? outgoing : !outgoing);
   });
-
   return (
     <section className="wallet-screen" aria-labelledby="history-title">
       <header className="wallet-page-header">
@@ -1456,7 +1390,6 @@ export function HistoryView() {
     </section>
   );
 }
-
 export function WalletQrSheet({
   initialMode = 'menu',
   onClose,
@@ -1495,7 +1428,9 @@ export function WalletQrSheet({
   const cancelledQrIds = useRef(new Set<string>());
   const claimedQrIds = useRef(new Set<string>());
   const scannerVideoRef = useRef<HTMLVideoElement | null>(null);
-  const browserScannerControls = useRef<{ stop: () => void } | null>(null);
+  const browserScannerControls = useRef<{
+    stop: () => void;
+  } | null>(null);
   const mountedRef = useRef(true);
   const sheetMutationRef = useRef<string | null>(null);
   const closeInFlightRef = useRef(false);
@@ -1503,17 +1438,14 @@ export function WalletQrSheet({
   const intentCreateAttemptRef = useRef<IdempotencyAttempt | null>(null);
   const intentConfirmAttemptRef = useRef<IdempotencyAttempt | null>(null);
   const ownerDecisionAttemptRef = useRef<IdempotencyAttempt | null>(null);
-
   const beginSheetMutation = (mutation: string): boolean => {
     if (sheetMutationRef.current || closeInFlightRef.current) return false;
     sheetMutationRef.current = mutation;
     return true;
   };
-
   const finishSheetMutation = (mutation: string): void => {
     if (sheetMutationRef.current === mutation) sheetMutationRef.current = null;
   };
-
   const cancelQr = (session: WalletQrSession | null) => {
     if (!session || claimedQrIds.current.has(session.id) || cancelledQrIds.current.has(session.id))
       return;
@@ -1523,7 +1455,6 @@ export function WalletQrSheet({
       headers: { 'Idempotency-Key': crypto.randomUUID() },
     }).catch(() => undefined);
   };
-
   const closeSheet = async () => {
     if (sheetMutationRef.current || closeInFlightRef.current) return;
     closeInFlightRef.current = true;
@@ -1537,7 +1468,9 @@ export function WalletQrSheet({
         !success
       ) {
         try {
-          const result = await api<{ items: WalletIntent[] }>('/wallet/intents/pending');
+          const result = await api<{
+            items: WalletIntent[];
+          }>('/wallet/intents/pending');
           const pending = result.items.find(
             (item) => item.kind === 'staff_debit' && item.status === 'awaiting_owner_confirmation',
           );
@@ -1560,7 +1493,6 @@ export function WalletQrSheet({
       if (!closed) setClosing(false);
     }
   };
-
   useEffect(() => {
     mountedRef.current = true;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -1573,11 +1505,9 @@ export function WalletQrSheet({
     };
     // QR cancellation intentionally uses the latest session through a ref.
   }, []);
-
   const secondsLeft = qrSession
     ? Math.max(0, Math.ceil((new Date(qrSession.expiresAt).getTime() - now) / 1000))
     : 0;
-
   const createQr = async () => {
     const body = JSON.stringify({});
     const mutation = 'create-wallet-qr';
@@ -1614,18 +1544,18 @@ export function WalletQrSheet({
       finishSheetMutation(mutation);
     }
   };
-
   useEffect(() => {
     if (mode === 'show' && !qrSession && !loading && !error) void createQr();
     // createQr intentionally runs only when the user opens this mode.
   }, [mode]);
-
   useEffect(() => {
     if (mode !== 'show') return;
     let disposed = false;
     const poll = async () => {
       try {
-        const result = await api<{ items: WalletIntent[] }>('/wallet/intents/pending');
+        const result = await api<{
+          items: WalletIntent[];
+        }>('/wallet/intents/pending');
         if (disposed) return;
         const pending =
           result.items.find(
@@ -1649,7 +1579,6 @@ export function WalletQrSheet({
       window.clearInterval(timer);
     };
   }, [mode, refresh]);
-
   const startScanner = async () => {
     setError(null);
     const messenger = getMessengerAdapter();
@@ -1671,19 +1600,19 @@ export function WalletQrSheet({
       setError('Сканер мессенджера недоступен. Можно включить камеру устройства.');
     }
   };
-
   const stopBrowserScanner = () => {
     browserScannerControls.current?.stop();
     browserScannerControls.current = null;
     setBrowserScanner(false);
   };
-
   useEffect(() => {
     if (!browserScanner || !scannerVideoRef.current) return;
     let disposed = false;
     void import('@zxing/browser')
       .then(async ({ BrowserQRCodeReader }) => {
-        const reader = new BrowserQRCodeReader(undefined, { delayBetweenScanAttempts: 180 });
+        const reader = new BrowserQRCodeReader(undefined, {
+          delayBetweenScanAttempts: 180,
+        });
         const controls = await reader.decodeFromVideoDevice(
           undefined,
           scannerVideoRef.current!,
@@ -1711,12 +1640,10 @@ export function WalletQrSheet({
       browserScannerControls.current = null;
     };
   }, [browserScanner]);
-
   useEffect(() => {
     if (mode === 'scan') void startScanner();
     // Scanner must open only after an explicit mode choice.
   }, [mode]);
-
   const requestPreview = async (event: FormEvent) => {
     event.preventDefault();
     if (!scannedPayload.trim()) return setError('Отсканируйте QR или введите код вручную');
@@ -1739,7 +1666,9 @@ export function WalletQrSheet({
             : (resolved.capabilities[0] ?? 'p2p_transfer'),
         );
         if (resolved.capabilities.some((capability) => capability.startsWith('staff_'))) {
-          void api<{ items: EventItem[] }>('/events?limit=100')
+          void api<{
+            items: EventItem[];
+          }>('/events?limit=100')
             .then((result) => setEvents(result.items))
             .catch(() => setEvents([]));
         }
@@ -1784,7 +1713,6 @@ export function WalletQrSheet({
       finishSheetMutation(mutation);
     }
   };
-
   const confirmTransfer = async () => {
     if (!preview || !resolvedQr) return;
     const body = JSON.stringify({
@@ -1833,7 +1761,6 @@ export function WalletQrSheet({
       finishSheetMutation(mutation);
     }
   };
-
   const decideOwnerDebit = async (decision: 'confirm' | 'reject') => {
     if (!ownerPendingIntent) return;
     const intent = ownerPendingIntent;
@@ -1865,9 +1792,7 @@ export function WalletQrSheet({
       finishSheetMutation(mutation);
     }
   };
-
   const sheetRequestBusy = loading || ownerDecisionBusy || closing;
-
   return (
     <m.div
       className="wallet-dialog-backdrop wallet-qr-backdrop"
@@ -2050,7 +1975,9 @@ export function WalletQrSheet({
               <p className="wallet-qr-timer">
                 <i
                   style={
-                    { '--qr-progress': `${Math.min(100, secondsLeft / 1.2)}%` } as CSSProperties
+                    {
+                      '--qr-progress': `${Math.min(100, secondsLeft / 1.2)}%`,
+                    } as CSSProperties
                   }
                 />
                 Действует ещё {secondsLeft} сек.
@@ -2223,7 +2150,6 @@ export function WalletQrSheet({
     </m.div>
   );
 }
-
 export function PendingWalletIntentBanner() {
   const { withUnit, refresh, applyDelta } = useWalletProgram();
   const [intent, setIntent] = useState<WalletIntent | null>(null);
@@ -2231,12 +2157,13 @@ export function PendingWalletIntentBanner() {
   const [error, setError] = useState<string | null>(null);
   const decisionInFlightRef = useRef(false);
   const decisionAttemptRef = useRef<IdempotencyAttempt | null>(null);
-
   useEffect(() => {
     let cancelled = false;
     const poll = async () => {
       try {
-        const result = await api<{ items: WalletIntent[] }>('/wallet/intents/pending');
+        const result = await api<{
+          items: WalletIntent[];
+        }>('/wallet/intents/pending');
         if (!cancelled) setIntent(result.items.find((item) => item.kind === 'staff_debit') ?? null);
       } catch {
         // Wallet endpoints may be unavailable during the gradual rollout.
@@ -2249,9 +2176,7 @@ export function PendingWalletIntentBanner() {
       window.clearInterval(timer);
     };
   }, []);
-
   if (!intent) return null;
-
   const decide = async (decision: 'confirm' | 'reject') => {
     if (decisionInFlightRef.current) return;
     const currentIntent = intent;
@@ -2281,7 +2206,6 @@ export function PendingWalletIntentBanner() {
       setBusy(false);
     }
   };
-
   return (
     <aside className="wallet-intent-banner" aria-live="polite">
       <div>

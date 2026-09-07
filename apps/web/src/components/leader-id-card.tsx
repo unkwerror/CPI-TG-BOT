@@ -24,6 +24,7 @@ import styles from './leader-id-card.module.css';
 
 export interface LeaderIdCardProps {
   className?: string;
+  hideWhenLinked?: boolean;
   /** Allows a parent loader to include Leader-ID in an existing parallel request batch. */
   initialStatus?: LeaderIdStatusResponse;
   /** Defaults to the Catalyst backend client; useful for development and E2E adapters. */
@@ -112,6 +113,7 @@ function ResultDetails({
 
 export function LeaderIdCard({
   className,
+  hideWhenLinked = false,
   initialStatus,
   client = leaderIdClient,
   openAuthorization = defaultOpenAuthorization,
@@ -337,7 +339,8 @@ export function LeaderIdCard({
   );
   const rootClassName = [styles.card, className].filter(Boolean).join(' ');
 
-  if (!available) return null;
+  if (!available || (hideWhenLinked && (!status || status.binding.status === 'linked')))
+    return null;
 
   return (
     <section className={rootClassName} aria-labelledby={titleId} aria-busy={operation !== 'idle'}>

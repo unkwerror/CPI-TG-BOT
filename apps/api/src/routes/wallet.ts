@@ -922,6 +922,7 @@ export const walletRoutes: FastifyPluginAsync = async (app) => {
         const productMedia = media.filter((item) => item.productId === product.id);
         return {
           ...product,
+          cardPackageId: null,
           description: product.description
             ? sanitizeRichContent(product.description, product.descriptionFormat)
             : null,
@@ -1288,7 +1289,7 @@ export const walletRoutes: FastifyPluginAsync = async (app) => {
         body: sanitizeRichContent(post.body, post.bodyFormat),
         bodyFormat: post.bodyFormat,
         cardHtml: post.cardHtml ? sanitizeRichHtml(post.cardHtml) : null,
-        cardPackageId: post.cardPackageId,
+        cardPackageId: null,
         imageUrl: await serializeFeedCoverUrl(app.s3, app.config, post),
         actionLabel: post.ctaLabel,
         actionUrl: post.ctaUrl,
@@ -1313,7 +1314,7 @@ export const walletRoutes: FastifyPluginAsync = async (app) => {
           : '',
         bodyFormat: event.descriptionFormat,
         cardHtml: event.cardHtml ? sanitizeRichHtml(event.cardHtml) : null,
-        cardPackageId: event.cardPackageId,
+        cardPackageId: null,
         imageUrl: event.coverUrl,
         actionLabel: 'Открыть мероприятие',
         actionUrl: `/events/${event.slug}`,
@@ -1335,7 +1336,7 @@ export const walletRoutes: FastifyPluginAsync = async (app) => {
           : '',
         bodyFormat: product.descriptionFormat,
         cardHtml: product.cardHtml ? sanitizeRichHtml(product.cardHtml) : null,
-        cardPackageId: product.cardPackageId,
+        cardPackageId: null,
         imageUrl: product.coverUrl,
         actionLabel: `Купить за ${serializePoints(product.price)}`,
         actionUrl: `/store?product=${product.id}`,

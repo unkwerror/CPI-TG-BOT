@@ -738,7 +738,9 @@ export const pointPrograms = pgTable(
     welcomeAmount: bigint('welcome_amount', { mode: 'bigint' })
       .notNull()
       .default(sql`100`),
-    leaderIdSubscriptionReward: bigint('leader_id_subscription_reward', { mode: 'bigint' })
+    leaderIdSubscriptionReward: bigint('leader_id_subscription_reward', {
+      mode: 'bigint',
+    })
       .notNull()
       .default(sql`0`),
     maxTransactionAmount: bigint('max_transaction_amount', { mode: 'bigint' })
@@ -1646,6 +1648,46 @@ export const pointFundAccess = pgTable(
     check(
       'point_fund_access_permission_check',
       sql`${table.canCredit} = true OR ${table.canDebit} = true OR ${table.canView} = true`,
+    ),
+  ],
+);
+
+export const coworkingBookings = pgTable(
+  'coworking_bookings',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+    endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
+    attendees: integer('attendees').notNull(),
+    purpose: text('purpose').notNull(),
+    status: text('status')
+      .$type<'pending' | 'confirmed' | 'rejected' | 'cancelled'>()
+      .notNull()
+      .default('pending'),
+    adminNote: text('admin_note'),
+    reviewedBy: uuid('reviewed_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    idempotencyKey: text('idempotency_key').notNull(),
+    requestHash: text('request_hash').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('coworking_booking_user_key_uq').on(table.userId, table.idempotencyKey),
+    index('coworking_booking_user_idx').on(table.userId, table.createdAt),
+    index('coworking_booking_status_idx').on(table.status, table.createdAt),
+    check(
+      'coworking_booking_status_check',
+      sql`${table.status} IN ('pending','confirmed','rejected','cancelled')`,
+    ),
+    check('coworking_booking_attendees_check', sql`${table.attendees} BETWEEN 1 AND 20`),
+    check(
+      'coworking_booking_duration_check',
+      sql`${table.endsAt} >= ${table.startsAt} + interval '30 minutes' AND ${table.endsAt} <= ${table.startsAt} + interval '8 hours'`,
     ),
   ],
 );
