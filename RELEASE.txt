@@ -1,19 +1,27 @@
-Release: catalyst-sequence-20260901-r1
-Date: 2026-09-01
+Release: native-studio-bb58916
+Date: 2026-09-07
+Application source commit: bb5891696f8d487a81884c63856fad40f167b6be
 
 Production scope:
-- All 33 official events from Leader-ID Catalyst sequence 412
-- Automatic registration immediately after a verified OAuth binding
-- Sequential startup reconciliation for every existing verified binding
-- Registry-only draft rows keep the extra 32 events out of the Catalyst catalogue
+- Native event/product/news rendering; ZIP card-package runtime retired
+- Catalyst T-shirt gallery, color/size selection, order variant visible in admin
+- Linked Leader-ID promotion hidden on home; binding management remains in profile
+- Coworking request rail, participant status/cancellation and admin review
+- Migration 0021_coworking_bookings applied; previous balances and records unchanged
+- API and web use native-studio-bb58916 images; both healthy
+- Bot and worker code unchanged; release images built, existing services kept running
 
 Validation:
-- 47 targeted Leader-ID and migration tests passed
-- API and database typechecks, API build, ESLint and Prettier passed
-- Full migration and idempotent replay passed on an isolated PostgreSQL 18 instance
-- Production reconciliation completed for 8 of 8 bindings
-- 264 of 264 official participations are unique and moderation-approved
+- 304 unit/API tests passed; 2 existing integration tests skipped
+- 12 Telegram/MAX browser scenarios passed with API mocks
+- Workspace typechecks and ESLint for new modules passed
+- API, web, bot, worker and migration Docker images built successfully
+- Production health and merchandise asset checks: 200
+- Unauthenticated coworking endpoints: 401; retired package endpoint: 404
 
 Rollback:
-- Source: /opt/CPI-TG-BOT.rollback-catalyst-sequence-20260901-r1
-- Database: /opt/backups/artifacts-before-catalyst-sequence-20260901-r1.dump
+- Backup directory: /opt/CPI-TG-BOT/backups/native-studio-bb58916
+- Source: source-before.tar.gz; database: database-before.dump
+- Previous environment: production.env.before; image versions: images-before.txt
+- Retired ZIP source files retained in removed/; stored packages not deleted
+- Keep the additive coworking table when rolling back application images
