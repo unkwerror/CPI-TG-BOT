@@ -75,6 +75,9 @@ test('linked users have no Leader-ID promo on home but can manage it in profile'
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Встретимся в студии' })).toBeVisible();
   await expect(page.locator('.wallet-leader-id-anchor')).toBeHidden();
+  await expect(page.locator('.coworking-card')).toHaveCount(1);
+  expect((await page.locator('.coworking-card').boundingBox())!.width).toBeLessThanOrEqual(280);
+  await expect(page.getByRole('button', { name: 'Следующая карточка коворкинга' })).toHaveCount(0);
   await page.screenshot({ path: '/tmp/cpi-home-mobile.png', fullPage: true });
   await page.getByRole('button', { name: 'Открыть профиль', exact: true }).click();
   await expect(page.locator('#leader-id-catalyst')).toBeVisible();
@@ -85,6 +88,29 @@ test('unlinked users still see Leader-ID promotion', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('.wallet-leader-id-anchor')).toBeVisible();
 });
+for (const width of [320, 1440]) {
+  test(`one compact coworking button works without a carousel at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await prepare(page);
+    await page.goto('/');
+    const section = page.locator('.coworking-section');
+    const button = section.getByRole('button', { name: 'Оставить заявку на коворкинг' });
+    await expect(section.getByRole('button')).toHaveCount(1);
+    await expect(button).toBeVisible();
+    expect((await button.boundingBox())!.width).toBeLessThanOrEqual(280);
+    expect(await section.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
+      true,
+    );
+    await section.screenshot({ path: `/tmp/cpi-compact-coworking-${width}.png` });
+    await button.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('dialog', { name: 'Место для твоего проекта' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(button).toBeFocused();
+  });
+}
+
 test('coworking request reaches admin and review reaches the participant', async ({ page }) => {
   await prepare(page);
   const bookings: CoworkingBooking[] = [];
@@ -119,7 +145,7 @@ test('coworking request reaches admin and review reaches the participant', async
     return route.fulfill({ json: { items: bookings, hasMore: false } });
   });
   await page.goto('/');
-  await page.getByRole('button', { name: /Твоя идея/ }).click();
+  await page.getByRole('button', { name: 'Оставить заявку на коворкинг', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Место для твоего проекта' });
   await expect(dialog).toBeVisible();
   await dialog.getByLabel('Участников').fill('4');
@@ -151,7 +177,7 @@ test('coworking request reaches admin and review reaches the participant', async
   expect(bookings[0]!.status).toBe('confirmed');
   await page.screenshot({ path: '/tmp/cpi-booking-admin.png', fullPage: true });
   await page.goto('/');
-  await page.getByRole('button', { name: /Твоя идея/ }).click();
+  await page.getByRole('button', { name: 'Оставить заявку на коворкинг', exact: true }).click();
   await expect(page.getByText('Ответ студии: Ждём вас в студии')).toBeVisible();
   await page.getByRole('button', { name: 'Отменить заявку', exact: true }).click();
   await expect(page.getByText('Отменено', { exact: true })).toBeVisible();

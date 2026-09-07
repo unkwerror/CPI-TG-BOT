@@ -50,7 +50,7 @@ import {
 } from './icons';
 import { StartupStudioLogo } from './startup-studio-logo';
 import { LeaderIdCard } from './leader-id-card';
-import { CoworkingRail } from './coworking';
+import { CoworkingCard } from './coworking';
 import { isCatalystTee, CatalystTeeGallery, CatalystTeeOptions } from './catalyst-merch';
 import { formatWalletAmount, useWalletProgram } from './wallet-program-context';
 import { RichHtml } from './rich-html';
@@ -352,7 +352,7 @@ export function WalletHome({
         <LeaderIdCard hideWhenLinked openAuthorization={openLeaderIdAuthorization} />
       </div>
 
-      <CoworkingRail />
+      <CoworkingCard />
       <section className="wallet-section" aria-labelledby="earn-title">
         <div className="wallet-section-heading">
           <div>

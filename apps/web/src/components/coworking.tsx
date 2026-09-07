@@ -35,7 +35,7 @@ function StudioScene() {
   );
 }
 
-export function CoworkingRail() {
+export function CoworkingCard() {
   const [open, setOpen] = useState(false);
   const [purpose, setPurpose] = useState('Работа над проектом');
   const [startsAt, setStartsAt] = useState(() => novosibirskInputAfter(24));
@@ -47,7 +47,6 @@ export function CoworkingRail() {
   const [notice, setNotice] = useState('');
   const [success, setSuccess] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
-  const rail = useRef<HTMLDivElement>(null);
   const attempt = useRef<IdempotencyAttempt | null>(null);
   const submitting = useRef(false);
 
@@ -77,9 +76,9 @@ export function CoworkingRail() {
     };
   }, [load, open]);
 
-  function show(kind: 'work' | 'team') {
-    setPurpose(kind === 'team' ? 'Встреча команды' : 'Работа над проектом');
-    setAttendees(kind === 'team' ? 4 : 1);
+  function show() {
+    setPurpose('Работа над проектом');
+    setAttendees(1);
     setNotice('');
     setSuccess(false);
     setOpen(true);
@@ -148,60 +147,30 @@ export function CoworkingRail() {
           <p className="wallet-kicker">Место для ваших идей</p>
           <h2 id="coworking-title">Встретимся в студии</h2>
         </div>
+      </div>
+      <div className="coworking-entry">
         <button
           type="button"
-          aria-label="Следующая карточка коворкинга"
-          onClick={() => rail.current?.scrollBy({ left: 300, behavior: 'smooth' })}
+          className="coworking-card"
+          aria-label="Оставить заявку на коворкинг"
+          onClick={show}
         >
-          ↗
-        </button>
-      </div>
-      <div className="coworking-rail" ref={rail} aria-label="Коворкинг стартап-студии" tabIndex={0}>
-        <button type="button" className="coworking-card" onClick={() => show('work')}>
           <span className="coworking-card__eyebrow">
             <i />
             СТАРТАП-СТУДИЯ НГУ
           </span>
+          <StudioScene />
           <strong>
-            Твоя идея.
+            Коворкинг
             <br />
-            Наше пространство.
+            для твоих идей
           </strong>
           <p>
-            Приходи работать над проектом
-            <br />в коворкинг студии.
+            Рабочее место
+            <br />и встречи команды.
           </p>
-          <StudioScene />
           <span className="coworking-card__cta">
             Оставить заявку <b>↗</b>
-          </span>
-        </button>
-        <button
-          type="button"
-          className="coworking-card coworking-card--team"
-          onClick={() => show('team')}
-        >
-          <span className="coworking-card__eyebrow">
-            <i />
-            ВМЕСТЕ ПОЛУЧАЕТСЯ БОЛЬШЕ
-          </span>
-          <strong>
-            Собери команду.
-            <br />
-            Запусти идею.
-          </strong>
-          <p>
-            Укажи время и сколько вас будет.
-            <br />
-            Мы рассмотрим заявку.
-          </p>
-          <div className="coworking-team-art" aria-hidden="true">
-            <span>✳</span>
-            <span>↗</span>
-            <span>✦</span>
-          </div>
-          <span className="coworking-card__cta">
-            Запланировать встречу <b>↗</b>
           </span>
         </button>
       </div>

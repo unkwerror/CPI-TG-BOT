@@ -1,25 +1,28 @@
-Release: native-studio-bb58916
+Release: coworking-single-20260907-r1
 Date: 2026-09-07
-Application source commit: bb5891696f8d487a81884c63856fad40f167b6be
+Base API/database source commit: bb5891696f8d487a81884c63856fad40f167b6be
 
 Production scope:
 - Native event/product/news rendering; ZIP card-package runtime retired
 - Catalyst T-shirt gallery, color/size selection, order variant visible in admin
 - Linked Leader-ID promotion hidden on home; binding management remains in profile
-- Coworking request rail, participant status/cancellation and admin review
+- One compact coworking card (max 280 px), participant status/cancellation and admin review
 - Migration 0021_coworking_bookings applied; previous balances and records unchanged
-- API and web use native-studio-bb58916 images; both healthy
+- Web image: cpi-artifacts-web:coworking-single-20260907-r1
+- API is unchanged from native-studio-bb58916; no new migration required
 - Bot and worker code unchanged; release images built, existing services kept running
 
 Validation:
 - 304 unit/API tests passed; 2 existing integration tests skipped
-- 12 Telegram/MAX browser scenarios passed with API mocks
+- 14 Telegram/MAX browser scenarios passed with API mocks, including 320/1440 px layouts
 - Workspace typechecks and ESLint for new modules passed
 - API, web, bot, worker and migration Docker images built successfully
 - Production health and merchandise asset checks: 200
 - Unauthenticated coworking endpoints: 401; retired package endpoint: 404
 
 Rollback:
+- Compact-card rollback: backups/coworking-single-20260907-r1
+- Previous web image: cpi-artifacts-web:native-studio-bb58916
 - Backup directory: /opt/CPI-TG-BOT/backups/native-studio-bb58916
 - Source: source-before.tar.gz; database: database-before.dump
 - Previous environment: production.env.before; image versions: images-before.txt

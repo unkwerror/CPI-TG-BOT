@@ -3,28 +3,29 @@
   margin: 28px 0;
   min-width: 0;
 }
-.coworking-rail {
-  display: flex;
-  gap: 14px;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  padding: 2px 0 14px;
-  scrollbar-width: thin;
-  scrollbar-color: #a9a09a transparent;
+.coworking-entry {
+  width: min(100%, 280px);
 }
 .coworking-card {
   position: relative;
-  flex: 0 0 87%;
-  min-height: 300px;
-  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 232px;
+  padding: 20px;
   overflow: hidden;
-  scroll-snap-align: start;
   border: 0;
-  border-radius: 25px;
+  border-radius: 22px;
   text-align: left;
   color: #20201e;
   background: #e5daf3;
   cursor: pointer;
+}
+.coworking-card:focus-visible {
+  outline: 3px solid #d3ff71;
+  outline-offset: 4px;
 }
 .coworking-card__eyebrow {
   display: flex;
@@ -44,8 +45,8 @@
   position: relative;
   display: block;
   z-index: 1;
-  margin-top: 25px;
-  font-size: clamp(24px, 5vw, 34px);
+  margin-top: 28px;
+  font-size: 24px;
   line-height: 1.06;
   letter-spacing: -1.3px;
   max-width: 280px;
@@ -60,9 +61,9 @@
 }
 .coworking-card__cta {
   position: absolute;
-  bottom: 23px;
-  left: 24px;
-  right: 24px;
+  bottom: 18px;
+  left: 20px;
+  right: 20px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -73,8 +74,8 @@
 .coworking-card__cta b {
   display: grid;
   place-items: center;
-  width: 37px;
-  height: 37px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   background: #242323;
   color: #f3f0e9;
@@ -82,38 +83,11 @@
 }
 .studio-scene {
   position: absolute;
-  right: -26px;
-  bottom: 46px;
-  width: 205px;
-  height: 135px;
-  opacity: 0.85;
-}
-.coworking-card--team {
-  background: #d7eaa8;
-}
-.coworking-team-art {
-  position: absolute;
-  right: 10px;
-  bottom: 70px;
-  display: flex;
-  transform: rotate(-12deg);
-}
-.coworking-team-art span {
-  width: 68px;
-  height: 68px;
-  border: 1px solid #273227;
-  border-radius: 50%;
-  background: #d6d7ef;
-  display: grid;
-  place-items: center;
-  font-size: 43px;
-  margin-left: -15px;
-}
-.coworking-team-art span:nth-child(2) {
-  background: #f5c1d3;
-}
-.coworking-team-art span:nth-child(3) {
-  background: #f3efd7;
+  right: 4px;
+  top: 12px;
+  width: 86px;
+  height: 62px;
+  pointer-events: none;
 }
 .studio-dialog {
   margin: auto;
@@ -554,19 +528,6 @@
   to {
     opacity: 1;
     transform: translateY(0);
-  }
-}
-@media (min-width: 700px) {
-  .coworking-card {
-    flex-basis: calc(50% - 7px);
-  }
-  .studio-scene {
-    width: 230px;
-    right: -20px;
-    opacity: 0.75;
-  }
-  .coworking-card > strong {
-    font-size: 30px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
