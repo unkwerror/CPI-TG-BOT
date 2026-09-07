@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from 'next';
-import Script from 'next/script';
 import type { ReactNode } from 'react';
+import { MessengerSdk } from '../components/messenger-sdk';
 import './globals.css';
 import './studio.css';
 
@@ -21,11 +21,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="ru" suppressHydrationWarning>
-      <head>
-        <Script src="https://telegram.org/js/telegram-web-app.js?63" strategy="beforeInteractive" />
-        <Script src="https://st.max.ru/js/max-web-app.js" strategy="beforeInteractive" />
-      </head>
-      <body>{children}</body>
+      <body>
+        <MessengerSdk />
+        {children}
+      </body>
     </html>
   );
 }

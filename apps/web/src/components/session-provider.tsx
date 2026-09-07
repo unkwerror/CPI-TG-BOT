@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 import { api, ApiClientError, authenticate } from '../lib/api';
-import { getMessengerAdapter } from '../lib/messenger-adapter';
+import { initializeMessengerSafely } from '../lib/messenger-adapter';
 import type { CurrentUser } from '../lib/types';
 
 interface SessionContextValue {
@@ -29,13 +29,23 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [online, setOnline] = useState(true);
 
-  const refreshUser = useCallback(async () => {
-    const current = await api<CurrentUser>('/me');
-    setUser(current);
+  const refreshUser = useCallback(async (signal?: AbortSignal) => {
+    const current = await api<CurrentUser>('/me', { signal: signal ?? null });
+    if (!signal?.aborted) setUser(current);
   }, []);
 
   useEffect(() => {
-    getMessengerAdapter()?.initialize();
+    const controller = new AbortController();
+    let disposed = false;
+    // Bound the entire startup, including response bodies and loading /me after authentication.
+    const timeout = window.setTimeout(() => {
+      controller.abort();
+      if (!disposed) {
+        setError('Сервер не ответил за 15 секунд. Проверьте подключение и нажмите «Повторить».');
+        setLoading(false);
+      }
+    }, 15_000);
+    initializeMessengerSafely();
     const markOnline = () => setOnline(true);
     const markOffline = () => setOnline(false);
     setOnline(navigator.onLine);
@@ -43,19 +53,25 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     window.addEventListener('offline', markOffline);
     void (async () => {
       try {
-        await authenticate();
-        await refreshUser();
+        await authenticate(controller.signal);
+        if (!controller.signal.aborted) await refreshUser(controller.signal);
       } catch (caught) {
-        setError(
-          caught instanceof ApiClientError || caught instanceof Error
-            ? caught.message
-            : 'Не удалось авторизоваться',
-        );
+        if (!disposed && !controller.signal.aborted) {
+          setError(
+            caught instanceof ApiClientError || caught instanceof Error
+              ? caught.message
+              : 'Не удалось авторизоваться',
+          );
+        }
       } finally {
-        setLoading(false);
+        window.clearTimeout(timeout);
+        if (!disposed && !controller.signal.aborted) setLoading(false);
       }
     })();
     return () => {
+      disposed = true;
+      window.clearTimeout(timeout);
+      controller.abort();
       window.removeEventListener('online', markOnline);
       window.removeEventListener('offline', markOffline);
     };

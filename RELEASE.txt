@@ -1,4 +1,4 @@
-Release: coworking-single-20260907-r1
+Release: startup-resilience-20260907-r1
 Date: 2026-09-07
 Base API/database source commit: bb5891696f8d487a81884c63856fad40f167b6be
 
@@ -8,21 +8,23 @@ Production scope:
 - Linked Leader-ID promotion hidden on home; binding management remains in profile
 - One compact coworking card (max 280 px), participant status/cancellation and admin review
 - Migration 0021_coworking_bookings applied; previous balances and records unchanged
-- Web image: cpi-artifacts-web:coworking-single-20260907-r1
+- Non-blocking SDK loading for the active messenger only; late SDK initialization is safe/idempotent
+- Full login and /me startup limited to 15 seconds, cancellable, with visible error and retry
+- Web image: cpi-artifacts-web:startup-resilience-20260907-r1
 - API is unchanged from native-studio-bb58916; no new migration required
-- Bot and worker code unchanged; release images built, existing services kept running
+- Bot and worker code unchanged; existing services kept running
 
 Validation:
-- 304 unit/API tests passed; 2 existing integration tests skipped
-- 14 Telegram/MAX browser scenarios passed with API mocks, including 320/1440 px layouts
-- Workspace typechecks and ESLint for new modules passed
-- API, web, bot, worker and migration Docker images built successfully
-- Production health and merchandise asset checks: 200
-- Unauthenticated coworking endpoints: 401; retired package endpoint: 404
+- 311 unit/API tests passed; 2 existing integration tests skipped
+- 23 Telegram/MAX browser scenarios passed with API mocks, including SDK failure and login recovery
+- Web production build, TypeScript and ESLint for changed modules passed
+- Only web image needs rebuilding; no migration or server-side code change
+- Deployment and recovery details: docs/startup-resilience-20260907.md
 
 Rollback:
+- Startup rollback: /opt/CPI-TG-BOT/backups/startup-resilience-20260907-r1
+- Previous web image: cpi-artifacts-web:coworking-single-20260907-r1
 - Compact-card rollback: backups/coworking-single-20260907-r1
-- Previous web image: cpi-artifacts-web:native-studio-bb58916
 - Backup directory: /opt/CPI-TG-BOT/backups/native-studio-bb58916
 - Source: source-before.tar.gz; database: database-before.dump
 - Previous environment: production.env.before; image versions: images-before.txt

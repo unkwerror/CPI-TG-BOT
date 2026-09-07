@@ -81,8 +81,11 @@ export async function api<T>(
     cache: 'no-store',
   });
   if (response.status === 204) return undefined as T;
-  const payload = (await response.json().catch(() => null)) as
-    T | { error?: { code?: string; message?: string } } | null;
+  const payload = (await response.json().catch((error: unknown) => {
+    if (init.signal?.aborted) throw error;
+    return null;
+  })) as T | { error?: { code?: string; message?: string } } | null;
+  if (init.signal?.aborted) throw new DOMException('Request cancelled', 'AbortError');
   if (!response.ok) {
     const error = readApiError(payload);
     throw new ApiClientError(error.message, error.code, response.status);
@@ -90,21 +93,25 @@ export async function api<T>(
   return payload as T;
 }
 
-export async function authenticate(): Promise<AuthResponse> {
+export async function authenticate(signal?: AbortSignal): Promise<AuthResponse> {
   // A shared browser can retain a cookie from the other messenger. Prefer the
   // current signed launch context so the active Telegram/MAX identity wins.
   const immediateLaunch = getMessengerLaunchData();
   if (immediateLaunch) {
     const result = await api<AuthResponse>(
       `/auth/${immediateLaunch.provider}`,
-      { method: 'POST', body: JSON.stringify({ initData: immediateLaunch.initData }) },
+      {
+        method: 'POST',
+        body: JSON.stringify({ initData: immediateLaunch.initData }),
+        signal: signal ?? null,
+      },
       { csrf: false },
     );
     saveAuthSession(result);
     return result;
   }
   try {
-    const session = await api<AuthResponse>('/auth/session');
+    const session = await api<AuthResponse>('/auth/session', { signal: signal ?? null });
     saveAuthSession(session);
     return session;
   } catch (error) {
@@ -114,7 +121,11 @@ export async function authenticate(): Promise<AuthResponse> {
   if (launch) {
     const result = await api<AuthResponse>(
       `/auth/${launch.provider}`,
-      { method: 'POST', body: JSON.stringify({ initData: launch.initData }) },
+      {
+        method: 'POST',
+        body: JSON.stringify({ initData: launch.initData }),
+        signal: signal ?? null,
+      },
       { csrf: false },
     );
     saveAuthSession(result);
@@ -123,7 +134,7 @@ export async function authenticate(): Promise<AuthResponse> {
   if (process.env.NEXT_PUBLIC_DEV_AUTH_ENABLED === 'true') {
     const result = await api<AuthResponse>(
       '/auth/dev',
-      { method: 'POST', body: JSON.stringify({}) },
+      { method: 'POST', body: JSON.stringify({}), signal: signal ?? null },
       { csrf: false },
     );
     saveAuthSession(result);

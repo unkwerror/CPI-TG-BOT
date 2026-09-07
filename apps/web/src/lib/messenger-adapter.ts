@@ -195,13 +195,16 @@ const telegramAdapter: MessengerAdapter = {
 const maxAdapter: MessengerAdapter = {
   provider: 'max',
   initialize() {
-    void window.WebApp?.getViewportSize?.().then(({ height, width }) => {
-      const safeHeight = cssLength(height);
-      const safeWidth = cssLength(width);
-      if (safeHeight)
-        document.documentElement.style.setProperty('--max-viewport-height', safeHeight);
-      if (safeWidth) document.documentElement.style.setProperty('--max-viewport-width', safeWidth);
-    });
+    void window.WebApp?.getViewportSize?.()
+      .then(({ height, width }) => {
+        const safeHeight = cssLength(height);
+        const safeWidth = cssLength(width);
+        if (safeHeight)
+          document.documentElement.style.setProperty('--max-viewport-height', safeHeight);
+        if (safeWidth)
+          document.documentElement.style.setProperty('--max-viewport-width', safeWidth);
+      })
+      .catch(() => undefined);
   },
   getStartParameter: () => window.WebApp?.initDataUnsafe?.start_param,
   getTheme: browserTheme,
@@ -266,6 +269,20 @@ export function getMessengerAdapter(provider?: MessengerProvider): MessengerAdap
   if (resolved === 'max') return maxAdapter;
   if (resolved === 'telegram') return telegramAdapter;
   return null;
+}
+
+const initializedBridges = new WeakSet<object>();
+
+export function initializeMessengerSafely(provider?: MessengerProvider): void {
+  try {
+    const adapter = getMessengerAdapter(provider);
+    const bridge = adapter?.provider === 'telegram' ? window.Telegram?.WebApp : window.WebApp;
+    if (!adapter || !bridge || initializedBridges.has(bridge)) return;
+    adapter.initialize();
+    initializedBridges.add(bridge);
+  } catch {
+    // SDKs can be late or partially supported. Native UI enhancements must never block auth.
+  }
 }
 
 export function openExternalLink(value: string, provider?: MessengerProvider): boolean {

@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getMessengerAdapter, normalizeExternalUrl } from './messenger-adapter';
+import {
+  getMessengerAdapter,
+  initializeMessengerSafely,
+  normalizeExternalUrl,
+} from './messenger-adapter';
 
 function installWindow(value: Record<string, unknown>): void {
   vi.stubGlobal('window', value);
@@ -38,6 +42,31 @@ describe('normalizeExternalUrl', () => {
 });
 
 describe('Telegram messenger adapter', () => {
+  it('initializes each SDK instance once, including one loaded later', () => {
+    const ready = vi.fn();
+    installWindow({ Telegram: { WebApp: { ready, expand: vi.fn() } } });
+    initializeMessengerSafely('telegram');
+    initializeMessengerSafely('telegram');
+    expect(ready).toHaveBeenCalledOnce();
+    const lateReady = vi.fn();
+    installWindow({ Telegram: { WebApp: { ready: lateReady, expand: vi.fn() } } });
+    initializeMessengerSafely('telegram');
+    expect(lateReady).toHaveBeenCalledOnce();
+  });
+  it('does not make login depend on SDK initialization', () => {
+    installWindow({});
+    expect(() => initializeMessengerSafely('telegram')).not.toThrow();
+    installWindow({
+      Telegram: {
+        WebApp: {
+          ready: () => {
+            throw new Error('Unsupported bridge');
+          },
+        },
+      },
+    });
+    expect(() => initializeMessengerSafely('telegram')).not.toThrow();
+  });
   it('routes trusted Telegram hosts to openTelegramLink and other HTTPS URLs to openLink', () => {
     const openTelegramLink = vi.fn();
     const openLink = vi.fn();
@@ -87,6 +116,14 @@ describe('Telegram messenger adapter', () => {
 });
 
 describe('MAX messenger adapter', () => {
+  it('handles rejected viewport initialization without blocking login', async () => {
+    installWindow({
+      WebApp: { getViewportSize: () => Promise.reject(new Error('Bridge unavailable')) },
+    });
+    expect(() => initializeMessengerSafely('max')).not.toThrow();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
   it('routes only MAX-owned hosts to openMaxLink', () => {
     const openMaxLink = vi.fn();
     const openLink = vi.fn();
