@@ -9206,3 +9206,93 @@ h2 {
     grid-template-columns: 1fr;
   }
 }
+
+.event-material-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  margin-block: 16px;
+  border: 1px solid var(--wallet-line);
+  border-radius: 16px;
+  background: var(--wallet-panel-2);
+}
+
+.event-material-tabs > button {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--wallet-muted);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.event-material-tabs > button[aria-selected='true'] {
+  background: var(--wallet-pink);
+  color: var(--wallet-white);
+}
+
+.quick-question.ui-card {
+  padding: 22px;
+  border: 1px solid var(--wallet-line);
+  border-radius: var(--radius);
+  background: var(--wallet-panel);
+  color: var(--wallet-white);
+  box-shadow: none;
+}
+.quick-question h3 {
+  margin: 0 0 14px;
+  font-size: 20px;
+}
+.quick-question p {
+  line-height: 1.5;
+  color: var(--wallet-muted);
+}
+.quick-question small {
+  color: var(--wallet-muted);
+}
+.wallet-app .quick-question .form-stack textarea {
+  width: 100%;
+  min-height: 140px;
+  padding: 15px;
+  border: 1px solid var(--wallet-line);
+  border-radius: 14px;
+  background: var(--wallet-ink);
+  color: var(--wallet-white);
+  resize: vertical;
+}
+.wallet-app .quick-question .form-stack textarea::placeholder {
+  color: var(--wallet-muted);
+}
+.wallet-app .quick-question .form-stack textarea:focus {
+  border-color: var(--wallet-pink);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--wallet-pink) 16%, transparent);
+  outline: none;
+}
+.quick-question [role='status'] > strong {
+  color: var(--wallet-lime);
+}
+.quick-question__answer {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--wallet-white);
+}
+.wallet-app .quick-question .primary-button {
+  width: 100%;
+  background: var(--wallet-pink);
+  color: var(--wallet-white);
+  box-shadow: none;
+}
+.user-export-section {
+  border-top: 1px solid var(--border);
+  padding-top: 20px;
+  margin-top: 20px;
+}
+.user-export-section p {
+  max-width: 760px;
+  line-height: 1.5;
+}

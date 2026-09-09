@@ -198,10 +198,25 @@ export const uploadCompleteSchema = z.object({
     .default([]),
 });
 
-export const exportCreateSchema = z.object({
-  eventId: z.uuid(),
-  kind: z.enum(exportKinds),
-});
+export const exportCreateSchema = z
+  .object({
+    eventId: z.uuid().optional(),
+    kind: z.enum(exportKinds),
+    scope: z.enum(['event', 'quick_answers', 'users']).default('event'),
+  })
+  .refine(
+    (value) =>
+      value.scope === 'users' ? !value.eventId && value.kind === 'xlsx' : Boolean(value.eventId),
+    {
+      message:
+        'Выберите мероприятие; выгрузка пользователей доступна только в XLSX без мероприятия',
+    },
+  )
+  .refine((value) => value.scope !== 'quick_answers' || value.kind === 'xlsx', {
+    message: 'Ответы на быстрый вопрос выгружаются в XLSX',
+  });
+
+export const quickAnswerSchema = z.object({ answer: z.string().trim().min(1).max(10_000) });
 
 export const eventListQuerySchema = z.object({
   q: z.string().trim().max(200).optional(),

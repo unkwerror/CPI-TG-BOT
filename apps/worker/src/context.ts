@@ -8,4 +8,5 @@ export interface WorkerContext {
   db: Database;
   s3: S3Client;
   logger: Logger;
+  redis?: { get(key: string): Promise<string | null> };
 }

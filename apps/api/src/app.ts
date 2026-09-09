@@ -24,6 +24,7 @@ import { authRoutes } from './routes/auth';
 import { coworkingRoutes } from './routes/coworking';
 import { crmIntegrationRoutes } from './routes/crm-integration';
 import { eventRoutes } from './routes/events';
+import { quickAnswerRoutes } from './routes/quick-answers';
 import { eventRequestRoutes } from './routes/event-requests';
 import {
   createLeaderIdProduction,
@@ -299,6 +300,7 @@ export async function buildApp(config: ApiEnvironment) {
       await versioned.register(meRoutes);
       await versioned.register(projectRoutes);
       await versioned.register(eventRoutes);
+      await versioned.register(quickAnswerRoutes);
       await versioned.register(eventRequestRoutes);
       if (leaderId) await versioned.register(leaderId.routes);
       await versioned.register(uploadRoutes);

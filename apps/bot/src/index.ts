@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { timingSafeEqual } from 'node:crypto';
 import { Bot, InlineKeyboard, webhookCallback } from 'grammy';
 import { Queue, Worker } from 'bullmq';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import Redis from 'ioredis';
 import pino from 'pino';
 import { botEnvironmentSchema, parseEnvironment } from '@cpi/config';
@@ -441,6 +441,17 @@ async function handleMaxUpdate(update: MaxUpdate): Promise<void> {
   if (!maxClient) return;
   if (update.update_type === 'bot_started') {
     await updateMaxIdentity(update.user, true, update.chat_id);
+    await db
+      .update(userMessengerIdentities)
+      .set({
+        firstBotStartedAt: sql`coalesce(${userMessengerIdentities.firstBotStartedAt}, now())`,
+      })
+      .where(
+        and(
+          eq(userMessengerIdentities.provider, 'max'),
+          eq(userMessengerIdentities.externalUserId, String(update.user.user_id)),
+        ),
+      );
     await sendMaxStart(String(update.user.user_id), update.payload);
     return;
   }
@@ -715,6 +726,19 @@ if (bot) {
     await next();
   });
   bot.command('start', async (context) => {
+    if (context.from && context.chat.type === 'private') {
+      await db
+        .update(userMessengerIdentities)
+        .set({
+          firstBotStartedAt: sql`coalesce(${userMessengerIdentities.firstBotStartedAt}, now())`,
+        })
+        .where(
+          and(
+            eq(userMessengerIdentities.provider, 'telegram'),
+            eq(userMessengerIdentities.externalUserId, String(context.from.id)),
+          ),
+        );
+    }
     const rawPayload = context.match?.trim();
     // Ссылка из email-рассылки: в письме нет callback-кнопок, поэтому отклик
     // приходит стартовым payload — и заодно приводит человека в бот.

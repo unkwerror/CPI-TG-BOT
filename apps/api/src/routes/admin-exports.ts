@@ -2,6 +2,7 @@ import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import type { FastifyPluginAsync } from 'fastify';
+import { z } from 'zod';
 import { artifacts, events, exportJobs, outboxEvents } from '@cpi/db';
 import { AppError, exportCreateSchema, publicStorageUrl } from '@cpi/shared';
 import { writeAudit } from '../audit';
@@ -17,24 +18,29 @@ export const adminExportRoutes: FastifyPluginAsync = async (app) => {
     { preHandler: writeGuards, schema: { tags: ['admin', 'exports'] } },
     async (request, reply) => {
       const body = exportCreateSchema.parse(request.body);
-      const [event] = await app.db
-        .select({ id: events.id })
-        .from(events)
-        .where(and(eq(events.id, body.eventId), isNull(events.deletedAt)))
-        .limit(1);
-      if (!event) throw new AppError('EVENT_NOT_FOUND', 'Мероприятие не найдено', 404);
+      if (body.eventId) {
+        const [event] = await app.db
+          .select({ id: events.id })
+          .from(events)
+          .where(and(eq(events.id, body.eventId), isNull(events.deletedAt)))
+          .limit(1);
+        if (!event) throw new AppError('EVENT_NOT_FOUND', 'Мероприятие не найдено', 404);
+      }
 
-      const replaced = await invalidateEventExports(
-        app,
-        body.eventId,
-        'Заменена новой выгрузкой того же формата',
-        body.kind,
-      );
+      const replaced = body.eventId
+        ? await invalidateEventExports(
+            app,
+            body.eventId,
+            'Заменена новой выгрузкой того же формата',
+            body.kind,
+          )
+        : { invalidatedExports: 0, cleanupPending: false };
       const [job] = await app.db.transaction(async (transaction) => {
         const created = await transaction
           .insert(exportJobs)
           .values({
-            eventId: body.eventId,
+            eventId: body.eventId ?? null,
+            scope: body.scope,
             requestedBy: request.currentUser!.id,
             kind: body.kind,
             status: 'queued',
@@ -72,9 +78,10 @@ export const adminExportRoutes: FastifyPluginAsync = async (app) => {
         action: 'export.create',
         entityType: 'export',
         entityId: job.id,
-        eventId: job.eventId,
+        ...(job.eventId ? { eventId: job.eventId } : {}),
         metadata: {
           kind: job.kind,
+          scope: job.scope,
           replacedExports: replaced.invalidatedExports,
           cleanupPending: replaced.cleanupPending,
         },
@@ -87,11 +94,21 @@ export const adminExportRoutes: FastifyPluginAsync = async (app) => {
     '/admin/exports',
     { preHandler: readGuards, schema: { tags: ['admin', 'exports'] } },
     async (request) => {
-      const eventId = (request.query as { eventId?: string }).eventId;
+      const { eventId, scope } = z
+        .object({
+          eventId: z.uuid().optional(),
+          scope: z.enum(['event', 'quick_answers', 'users']).optional(),
+        })
+        .parse(request.query);
       const rows = await app.db
         .select()
         .from(exportJobs)
-        .where(eventId ? eq(exportJobs.eventId, eventId) : undefined)
+        .where(
+          and(
+            eventId ? eq(exportJobs.eventId, eventId) : undefined,
+            scope ? eq(exportJobs.scope, scope) : undefined,
+          ),
+        )
         .orderBy(desc(exportJobs.createdAt))
         .limit(100);
       return { items: rows.map(serializeExportJob) };
@@ -136,7 +153,7 @@ export const adminExportRoutes: FastifyPluginAsync = async (app) => {
         new GetObjectCommand({
           Bucket: job.bucket,
           Key: job.objectKey,
-          ResponseContentDisposition: `attachment; filename="event-export-${job.id}.${extension}"`,
+          ResponseContentDisposition: `attachment; filename="${job.scope}-export-${job.id}.${extension}"`,
         }),
         { expiresIn: app.config.PRESIGNED_URL_TTL_SECONDS },
       );

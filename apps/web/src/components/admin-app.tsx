@@ -182,7 +182,14 @@ export function AdminApp() {
       <section className="admin-content">
         <AdminHeader title={tabs.find((item) => item.key === tab)?.label ?? 'Администрирование'} />
         {tab === 'dashboard' ? <Dashboard /> : null}
-        {tab === 'users' ? <Users /> : null}
+        {tab === 'users' ? (
+          <Users
+            onExport={() => {
+              setEventId('');
+              setTab('exports');
+            }}
+          />
+        ) : null}
         {tab === 'events' ? (
           <EventManagement
             onChooseEvent={(id) => {
@@ -1039,7 +1046,7 @@ interface AdminUserListItem extends AdminParticipant {
   lastSeenAt: string;
 }
 
-function Users() {
+function Users({ onExport }: { onExport: () => void }) {
   const [items, setItems] = useState<AdminUserListItem[]>([]);
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
@@ -1065,6 +1072,7 @@ function Users() {
     <Card className="admin-table-card">
       <div className="admin-toolbar">
         <p>{loading ? 'Загружаем пользователей…' : `${items.length} пользователей`}</p>
+        <Button onClick={onExport}>Выгрузка пользователей и конверсии</Button>
         <input
           className="admin-search"
           aria-label="Поиск пользователя"
@@ -1412,28 +1420,37 @@ function Exports({
   const [jobs, setJobs] = useState<ExportJob[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [manualDownloadUrl, setManualDownloadUrl] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const load = useCallback(async () => {
-    const result = await api<{ items: ExportJob[] }>(
-      `/admin/exports${eventId ? `?eventId=${eventId}` : ''}`,
-    );
-    setJobs(result.items);
+    try {
+      const result = await api<{ items: ExportJob[] }>(
+        `/admin/exports${eventId ? `?eventId=${eventId}` : ''}`,
+      );
+      setJobs(result.items);
+    } catch (caught) {
+      setMessage(caught instanceof Error ? caught.message : 'Не удалось загрузить выгрузки');
+    }
   }, [eventId]);
   useEffect(() => {
     void load();
     const timer = setInterval(() => void load(), 3_000);
     return () => clearInterval(timer);
   }, [load]);
-  const create = async (kind: ExportKind) => {
-    if (!eventId) return;
+  const create = async (kind: ExportKind, scope: ExportJob['scope'] = 'event') => {
+    if (creating || (!eventId && scope !== 'users')) return;
+    setCreating(true);
     setMessage('Формируем выгрузку — она появится в таблице ниже.');
     try {
       await api('/admin/exports', {
         method: 'POST',
-        body: JSON.stringify({ eventId, kind }),
+        body: JSON.stringify({ ...(scope === 'users' ? {} : { eventId }), kind, scope }),
       });
+      if (scope === 'users' && eventId) onEventChange('');
       await load();
     } catch (caught) {
       setMessage(caught instanceof Error ? caught.message : 'Не удалось создать выгрузку');
+    } finally {
+      setCreating(false);
     }
   };
   const download = async (id: string) => {
@@ -1460,21 +1477,37 @@ function Exports({
         </div>
         <EventSelect value={eventId} onChange={onEventChange} />
         <div className="row-actions">
-          <Button disabled={!eventId} onClick={() => void create('csv')}>
+          <Button disabled={!eventId || creating} onClick={() => void create('csv')}>
             Таблица CSV
           </Button>
-          <Button disabled={!eventId} onClick={() => void create('xlsx')}>
+          <Button disabled={!eventId || creating} onClick={() => void create('xlsx')}>
             Таблица XLSX
           </Button>
           <Button
+            disabled={!eventId || creating}
+            onClick={() => void create('xlsx', 'quick_answers')}
+          >
+            Быстрый вопрос · ФИО и ответы XLSX
+          </Button>
+          <Button
             className="primary-button compact-button"
-            disabled={!eventId}
+            disabled={!eventId || creating}
             onClick={() => void create('zip')}
           >
             Все файлы ZIP
           </Button>
         </div>
         {!eventId ? <p className="export-hint">Сначала выберите мероприятие.</p> : null}
+        <div className="user-export-section">
+          <h3>Пользователи бота и конверсия</h3>
+          <p>
+            Все пользователи, запуск бота, открытие приложения, членство в чате Каталиста и привязка
+            Leader ID. В Excel — реестр, сводка и пояснения к расчётам.
+          </p>
+          <Button disabled={creating} onClick={() => void create('xlsx', 'users')}>
+            Пользователи и конверсия · XLSX
+          </Button>
+        </div>
         {message ? <p className="export-hint">{message}</p> : null}
         {manualDownloadUrl ? (
           <a
@@ -1491,7 +1524,14 @@ function Exports({
         <Table headings={['Формат', 'Создан', 'Статус', 'Прогресс', 'Размер', 'Действие']}>
           {jobs.map((job) => (
             <tr key={job.id}>
-              <td>{job.kind.toUpperCase()}</td>
+              <td>
+                {job.scope === 'users'
+                  ? 'Пользователи · '
+                  : job.scope === 'quick_answers'
+                    ? 'Быстрый вопрос · '
+                    : ''}
+                {job.kind.toUpperCase()}
+              </td>
               <td>{formatNovosibirskDateTime(job.createdAt)}</td>
               <td>
                 <Status value={job.status} />

@@ -12,6 +12,7 @@ import { and, asc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 import {
   artifacts,
   eventParticipants,
+  eventQuickAnswers,
   events,
   exportJobs,
   submissions,
@@ -21,6 +22,7 @@ import {
 import { exportObjectKey, safeZipSegment } from '@cpi/shared';
 import type { WorkerContext } from './context';
 import { writeXlsxWorkbook, type SpreadsheetColumn } from './xlsx';
+import { buildUserSheets } from './user-export';
 
 type ParticipantRow = Awaited<ReturnType<typeof loadParticipants>>[number];
 type ArtifactRow = Awaited<ReturnType<typeof loadArtifacts>>[number];
@@ -298,11 +300,29 @@ async function writeCombinedWorkbook(
   filePath: string,
   participantRows: ParticipantRow[],
   artifactRows: ArtifactRow[],
+  answerSheet: Awaited<ReturnType<typeof loadQuickAnswerSheet>>,
 ): Promise<void> {
   await writeXlsxWorkbook(filePath, [
     { name: 'Участники', columns: participantColumns(), rows: participantRows },
     { name: 'Артефакты', columns: artifactColumns(), rows: artifactRows },
+    answerSheet,
   ]);
+}
+
+export async function loadQuickAnswerSheet(context: WorkerContext, eventId: string) {
+  const rows = await context.db
+    .select({ fullName: eventQuickAnswers.fullName, answer: eventQuickAnswers.answer })
+    .from(eventQuickAnswers)
+    .where(eq(eventQuickAnswers.eventId, eventId))
+    .orderBy(asc(eventQuickAnswers.createdAt), asc(eventQuickAnswers.userId));
+  return {
+    name: 'Быстрый вопрос',
+    columns: [
+      { header: 'ФИО', key: 'fullName', width: 40 },
+      { header: 'Ответ на быстрый вопрос', key: 'answer', width: 100 },
+    ],
+    rows,
+  };
 }
 
 function csvCell(value: unknown): string {
@@ -567,13 +587,13 @@ export async function buildExport(context: WorkerContext, exportJobId: string): 
   const [jobContext] = await context.db
     .select({ job: exportJobs, event: events })
     .from(exportJobs)
-    .innerJoin(events, eq(events.id, exportJobs.eventId))
+    .leftJoin(events, eq(events.id, exportJobs.eventId))
     .where(eq(exportJobs.id, exportJobId))
     .limit(1);
   if (!jobContext || jobContext.job.status === 'ready') return;
 
   const objectKey = exportObjectKey(context.config.S3_PREFIX, {
-    eventId: jobContext.event.id,
+    eventId: jobContext.job.eventId ?? 'users',
     exportJobId: jobContext.job.id,
     kind: jobContext.job.kind,
   });
@@ -616,21 +636,22 @@ export async function buildExport(context: WorkerContext, exportJobId: string): 
   };
 
   try {
-    const [participantRows, artifactRows, submissionRows] = await Promise.all([
-      loadParticipants(context, jobContext.event.id),
-      loadArtifacts(context, jobContext.event.id),
-      loadSubmissions(context, jobContext.event.id),
-    ]);
-    await updateProgress(10);
-
     let sizeBytes: number;
-    if (jobContext.job.kind === 'csv') {
-      await writeCsv(outputPath, participantRows, artifactRows);
-      await updateProgress(80);
-      sizeBytes = await uploadFile(context, outputPath, objectKey, 'text/csv; charset=utf-8');
-    } else if (jobContext.job.kind === 'xlsx') {
-      await writeCombinedWorkbook(outputPath, participantRows, artifactRows);
-      await updateProgress(80);
+    if (jobContext.job.scope === 'users') {
+      const sheets = await buildUserSheets(context, updateProgress);
+      await writeXlsxWorkbook(outputPath, sheets);
+      await updateProgress(85);
+      sizeBytes = await uploadFile(
+        context,
+        outputPath,
+        objectKey,
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+    } else if (jobContext.job.scope === 'quick_answers') {
+      if (!jobContext.event) throw new Error('Мероприятие не найдено');
+      const sheet = await loadQuickAnswerSheet(context, jobContext.event.id);
+      await writeXlsxWorkbook(outputPath, [sheet]);
+      await updateProgress(85);
       sizeBytes = await uploadFile(
         context,
         outputPath,
@@ -638,21 +659,49 @@ export async function buildExport(context: WorkerContext, exportJobId: string): 
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       );
     } else {
-      await Promise.all([
-        writeParticipantsWorkbook(participantPath, participantRows),
-        writeArtifactsWorkbook(artifactPath, artifactRows),
+      if (!jobContext.event) throw new Error('Мероприятие не найдено');
+      const [participantRows, artifactRows, submissionRows] = await Promise.all([
+        loadParticipants(context, jobContext.event.id),
+        loadArtifacts(context, jobContext.event.id),
+        loadSubmissions(context, jobContext.event.id),
       ]);
-      await updateProgress(20);
-      sizeBytes = await buildZip(context, {
-        event: jobContext.event,
-        participantRows,
-        artifactRows,
-        submissionRows,
-        participantWorkbookPath: participantPath,
-        artifactWorkbookPath: artifactPath,
-        objectKey,
-        onProgress: updateProgress,
-      });
+      await updateProgress(10);
+
+      if (jobContext.job.kind === 'csv') {
+        await writeCsv(outputPath, participantRows, artifactRows);
+        await updateProgress(80);
+        sizeBytes = await uploadFile(context, outputPath, objectKey, 'text/csv; charset=utf-8');
+      } else if (jobContext.job.kind === 'xlsx') {
+        await writeCombinedWorkbook(
+          outputPath,
+          participantRows,
+          artifactRows,
+          await loadQuickAnswerSheet(context, jobContext.event.id),
+        );
+        await updateProgress(80);
+        sizeBytes = await uploadFile(
+          context,
+          outputPath,
+          objectKey,
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        );
+      } else {
+        await Promise.all([
+          writeParticipantsWorkbook(participantPath, participantRows),
+          writeArtifactsWorkbook(artifactPath, artifactRows),
+        ]);
+        await updateProgress(20);
+        sizeBytes = await buildZip(context, {
+          event: jobContext.event,
+          participantRows,
+          artifactRows,
+          submissionRows,
+          participantWorkbookPath: participantPath,
+          artifactWorkbookPath: artifactPath,
+          objectKey,
+          onProgress: updateProgress,
+        });
+      }
     }
 
     const expiresAt = new Date(Date.now() + context.config.EXPORT_RETENTION_HOURS * 60 * 60 * 1000);

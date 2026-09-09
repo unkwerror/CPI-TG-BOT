@@ -1,32 +1,19 @@
-Release: startup-resilience-20260907-r1
-Date: 2026-09-07
-Base API/database source commit: bb5891696f8d487a81884c63856fad40f167b6be
+Release: quick-answers-20260909-r1
+Date: 2026-09-09
+Base source commit: 5b1c208b665b448ecd9428eb00fe304b71ce475d
 
-Production scope:
-- Native event/product/news rendering; ZIP card-package runtime retired
-- Catalyst T-shirt gallery, color/size selection, order variant visible in admin
-- Linked Leader-ID promotion hidden on home; binding management remains in profile
-- One compact coworking card (max 280 px), participant status/cancellation and admin review
-- Migration 0021_coworking_bookings applied; previous balances and records unchanged
-- Non-blocking SDK loading for the active messenger only; late SDK initialization is safe/idempotent
-- Full login and /me startup limited to 15 seconds, cancellable, with visible error and retry
-- Web image: cpi-artifacts-web:startup-resilience-20260907-r1
-- API is unchanged from native-studio-bb58916; no new migration required
-- Bot and worker code unchanged; existing services kept running
+Scope:
+- Event and submission-dialog tabs: artifacts / one-time quick answer
+- Existing Catalyst dark, pink and lime palette
+- Event XLSX includes quick answers; separate FIO + answer XLSX
+- Global user XLSX: bot, app, Catalyst chat, verified Leader ID and conversion summary
+- First observed bot start / app login tracked separately from historical evidence
+- Additive migration 0022_quick_answers_user_exports required before application update
+- API, worker, bot and web use the same release tag
 
 Validation:
-- 311 unit/API tests passed; 2 existing integration tests skipped
-- 23 Telegram/MAX browser scenarios passed with API mocks, including SDK failure and login recovery
-- Web production build, TypeScript and ESLint for changed modules passed
-- Only web image needs rebuilding; no migration or server-side code change
-- Deployment and recovery details: docs/startup-resilience-20260907.md
+- 334 tests passed, 2 existing tests skipped, including isolated PostgreSQL integration tests
+- TypeScript, scoped ESLint and all application builds passed
+- Local browser QA uses test data; no test answers are written to production
 
-Rollback:
-- Startup rollback: /opt/CPI-TG-BOT/backups/startup-resilience-20260907-r1
-- Previous web image: cpi-artifacts-web:coworking-single-20260907-r1
-- Compact-card rollback: backups/coworking-single-20260907-r1
-- Backup directory: /opt/CPI-TG-BOT/backups/native-studio-bb58916
-- Source: source-before.tar.gz; database: database-before.dump
-- Previous environment: production.env.before; image versions: images-before.txt
-- Retired ZIP source files retained in removed/; stored packages not deleted
-- Keep the additive coworking table when rolling back application images
+Deployment and rollback: docs/quick-answers-20260909.md

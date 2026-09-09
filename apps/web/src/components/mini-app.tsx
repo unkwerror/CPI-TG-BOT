@@ -11,6 +11,7 @@ import type { EventItem } from '../lib/types';
 import { ArrowIcon, CalendarIcon, HistoryIcon, HomeIcon, QrIcon, UploadIcon } from './icons';
 import { CatAssistant } from './cat-assistant';
 import { EventSubmissions } from './event-submissions';
+import { QuickQuestion } from './quick-question';
 import { EventRequestPanel } from './event-request-panel';
 import { EventsView } from './events-view';
 import { EntityActionDock, EntityBackButton } from './entity-action-dock';
@@ -353,6 +354,7 @@ function EventDetail({
   onOpenInternalLink: (href: string) => boolean;
 }) {
   const [participating, setParticipating] = useState(false);
+  const [materialsTab, setMaterialsTab] = useState<'artifacts' | 'question'>('artifacts');
   const [participationError, setParticipationError] = useState<string | null>(null);
   useEffect(() => {
     const root = document.documentElement;
@@ -507,7 +509,39 @@ function EventDetail({
             ) : null}
           </Card>
         ) : null}
-        <EventSubmissions eventId={event.id} refreshRevision={submissionsRevision} />
+        <div className="event-material-tabs" role="tablist" aria-label="Материалы мероприятия">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={materialsTab === 'artifacts'}
+            aria-controls="event-artifacts-panel"
+            onClick={() => setMaterialsTab('artifacts')}
+          >
+            Артефакты
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={materialsTab === 'question'}
+            aria-controls="event-question-panel"
+            onClick={() => setMaterialsTab('question')}
+          >
+            Быстрый вопрос
+          </button>
+        </div>
+        <div id="event-artifacts-panel" role="tabpanel" hidden={materialsTab !== 'artifacts'}>
+          <EventSubmissions eventId={event.id} refreshRevision={submissionsRevision} />
+        </div>
+        {materialsTab === 'question' ? (
+          <div id="event-question-panel" role="tabpanel">
+            <QuickQuestion
+              key={event.id}
+              eventId={event.id}
+              acceptsAnswers={event.acceptsUploads}
+              onSubmitted={onParticipated}
+            />
+          </div>
+        ) : null}
         {event.acceptsRequests ? <EventRequestPanel eventId={event.id} /> : null}
         <Card className="detail-grid">
           <div>

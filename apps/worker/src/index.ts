@@ -50,7 +50,7 @@ const s3 = new S3Client({
   requestChecksumCalculation: 'WHEN_REQUIRED',
   responseChecksumValidation: 'WHEN_REQUIRED',
 });
-const context: WorkerContext = { config, db, s3, logger };
+const context: WorkerContext = { config, db, s3, logger, redis: connection };
 const queueOptions = { connection, prefix: config.REDIS_PREFIX };
 const artifactQueue = new Queue('artifact-verification', queueOptions);
 const exportQueue = new Queue('exports', queueOptions);

@@ -204,6 +204,7 @@ services:
     environment:
       <<: *app-environment
       WORKER_HEALTH_PORT: '3003'
+      TELEGRAM_CATALYST_CHAT_ID: ${TELEGRAM_CATALYST_CHAT_ID:-}
       FILE_VERIFICATION_MODE: ${FILE_VERIFICATION_MODE:-clamav}
       CLAMAV_HOST: ${CLAMAV_HOST:-clamav}
       CLAMAV_PORT: ${CLAMAV_PORT:-3310}

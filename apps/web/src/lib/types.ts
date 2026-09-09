@@ -210,7 +210,8 @@ export interface ProjectsContextResponse {
 
 export interface ExportJob {
   id: string;
-  eventId: string;
+  eventId: string | null;
+  scope: 'event' | 'quick_answers' | 'users';
   kind: ExportKind;
   status: ExportStatus;
   progress: number;

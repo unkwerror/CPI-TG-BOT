@@ -20,6 +20,7 @@ import {
   artifacts,
   auditLogs,
   eventParticipants,
+  eventQuickAnswers,
   events,
   exportJobs,
   leaderIdBindings,
@@ -800,6 +801,9 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
               ),
             );
         }
+        await transaction
+          .delete(eventQuickAnswers)
+          .where(and(eq(eventQuickAnswers.eventId, eventId), eq(eventQuickAnswers.userId, userId)));
         await transaction
           .delete(eventParticipants)
           .where(and(eq(eventParticipants.eventId, eventId), eq(eventParticipants.userId, userId)));

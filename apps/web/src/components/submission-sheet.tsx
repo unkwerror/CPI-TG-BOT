@@ -13,6 +13,7 @@ import type {
   SubmissionItem,
 } from '../lib/types';
 import { CatAssistant } from './cat-assistant';
+import { QuickQuestion } from './quick-question';
 import { CloseIcon, FilesIcon, LinkIcon, UploadIcon } from './icons';
 
 interface SelectedFile {
@@ -87,6 +88,7 @@ export function SubmissionSheet({
   const [success, setSuccess] = useState<SubmissionItem | null>(null);
   const [artifactForm, setArtifactForm] = useState<EventArtifactForm | null>(null);
   const [formLoading, setFormLoading] = useState(true);
+  const [tab, setTab] = useState<'artifact' | 'question'>('artifact');
   const activeRequests = useRef(new Set<XMLHttpRequest>());
   const artifactIds = useRef(new Set<string>());
   const cancelledRef = useRef(false);
@@ -436,280 +438,307 @@ export function SubmissionSheet({
         </button>
         <div className="sheet-heading">
           <span className="event-code">{event.shortCode}</span>
-          <h2 id="submit-title">Добавить артефакт</h2>
+          <h2 id="submit-title">{tab === 'artifact' ? 'Добавить артефакт' : 'Быстрый вопрос'}</h2>
           <p>{event.title}</p>
         </div>
-        <CatAssistant
-          compact
-          live
-          mood={submitting || files.length > 0 ? 'upload' : 'talk'}
-          message={
-            submitting
-              ? `Загружаю и ничего не теряю — уже ${overallProgress}%. Не закрывайте окно.`
-              : files.length > 0
-                ? `Выбрано файлов: ${files.length}. Добавьте описание или сразу отправляйте.`
-                : 'Можно приложить несколько файлов, ссылку и заметку в одной отправке.'
-          }
-        />
-        <form className="form-stack" onSubmit={submit}>
-          {formLoading ? (
-            <div className="form-loading">
-              <span /> Загружаем форму…
-            </div>
-          ) : null}
-          {artifactForm ? (
-            <div className="dynamic-artifact-form">
-              <header>
-                <span>Форма · версия {artifactForm.version}</span>
-                <h3>{artifactForm.title}</h3>
-                {artifactForm.instructions ? <p>{artifactForm.instructions}</p> : null}
-              </header>
-              {artifactForm.fields.map((field) => {
-                const value = draft.fieldValues[field.id];
-                if (field.kind === 'checkbox') {
+        <div className="event-material-tabs" role="tablist" aria-label="Вид отправки">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'artifact'}
+            disabled={submitting}
+            onClick={() => setTab('artifact')}
+          >
+            Артефакт
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'question'}
+            disabled={submitting}
+            onClick={() => setTab('question')}
+          >
+            Быстрый вопрос
+          </button>
+        </div>
+        {tab === 'question' ? (
+          <QuickQuestion eventId={event.id} acceptsAnswers={event.acceptsUploads} />
+        ) : null}
+        <div hidden={tab !== 'artifact'}>
+          <CatAssistant
+            compact
+            live
+            mood={submitting || files.length > 0 ? 'upload' : 'talk'}
+            message={
+              submitting
+                ? `Загружаю и ничего не теряю — уже ${overallProgress}%. Не закрывайте окно.`
+                : files.length > 0
+                  ? `Выбрано файлов: ${files.length}. Добавьте описание или сразу отправляйте.`
+                  : 'Можно приложить несколько файлов, ссылку и заметку в одной отправке.'
+            }
+          />
+          <form className="form-stack" onSubmit={submit}>
+            {formLoading ? (
+              <div className="form-loading">
+                <span /> Загружаем форму…
+              </div>
+            ) : null}
+            {artifactForm ? (
+              <div className="dynamic-artifact-form">
+                <header>
+                  <span>Форма · версия {artifactForm.version}</span>
+                  <h3>{artifactForm.title}</h3>
+                  {artifactForm.instructions ? <p>{artifactForm.instructions}</p> : null}
+                </header>
+                {artifactForm.fields.map((field) => {
+                  const value = draft.fieldValues[field.id];
+                  if (field.kind === 'checkbox') {
+                    return (
+                      <label className="artifact-checkbox-field" key={field.id}>
+                        <input
+                          type="checkbox"
+                          checked={value === true}
+                          required={field.required}
+                          onChange={(inputEvent) =>
+                            setDraft((current) => ({
+                              ...current,
+                              fieldValues: {
+                                ...current.fieldValues,
+                                [field.id]: inputEvent.target.checked,
+                              },
+                            }))
+                          }
+                        />
+                        <span>
+                          <strong>
+                            {field.label}
+                            {field.required ? ' *' : ''}
+                          </strong>
+                          {field.description ? <small>{field.description}</small> : null}
+                        </span>
+                      </label>
+                    );
+                  }
+                  if (isFileField(field)) {
+                    const selectedCount = files.filter(
+                      (item) => item.formFieldId === field.id,
+                    ).length;
+                    const maxSize = field.maxFileSizeBytes ?? event.maxFileSizeBytes;
+                    return (
+                      <div className="artifact-file-field" key={field.id}>
+                        <div>
+                          <strong>
+                            {field.label}
+                            {field.required ? ' *' : ''}
+                          </strong>
+                          {field.description ? <p>{field.description}</p> : null}
+                        </div>
+                        <label className="file-picker">
+                          <UploadIcon />
+                          <strong>
+                            {selectedCount > 0 ? `Выбрано: ${selectedCount}` : 'Выбрать файлы'}
+                          </strong>
+                          <span>
+                            До {field.maxItems} шт. · до {formatBytes(maxSize)} каждый
+                          </span>
+                          <input
+                            type="file"
+                            multiple={field.maxItems > 1}
+                            accept={fieldAccept(field)}
+                            onChange={(inputEvent) => chooseFiles(inputEvent, field)}
+                            disabled={submitting || selectedCount >= field.maxItems}
+                          />
+                        </label>
+                      </div>
+                    );
+                  }
+                  const stringValue = typeof value === 'string' ? value : '';
                   return (
-                    <label className="artifact-checkbox-field" key={field.id}>
-                      <input
-                        type="checkbox"
-                        checked={value === true}
-                        required={field.required}
-                        onChange={(inputEvent) =>
-                          setDraft((current) => ({
-                            ...current,
-                            fieldValues: {
-                              ...current.fieldValues,
-                              [field.id]: inputEvent.target.checked,
-                            },
-                          }))
-                        }
-                      />
+                    <label key={field.id}>
                       <span>
-                        <strong>
-                          {field.label}
-                          {field.required ? ' *' : ''}
-                        </strong>
-                        {field.description ? <small>{field.description}</small> : null}
+                        {field.label}
+                        {field.required ? ' *' : ''}
                       </span>
+                      {field.kind === 'text' && (field.config.maxLength ?? 0) > 500 ? (
+                        <textarea
+                          value={stringValue}
+                          required={field.required}
+                          minLength={field.config.minLength}
+                          maxLength={field.config.maxLength}
+                          rows={4}
+                          placeholder={field.config.placeholder ?? field.description ?? undefined}
+                          onChange={(inputEvent) =>
+                            setDraft((current) => ({
+                              ...current,
+                              fieldValues: {
+                                ...current.fieldValues,
+                                [field.id]: inputEvent.target.value,
+                              },
+                            }))
+                          }
+                        />
+                      ) : (
+                        <input
+                          type={field.kind === 'link' ? 'url' : 'text'}
+                          value={stringValue}
+                          required={field.required}
+                          minLength={field.config.minLength}
+                          maxLength={field.config.maxLength}
+                          placeholder={
+                            field.config.placeholder ??
+                            field.description ??
+                            (field.kind === 'link' ? 'https://' : undefined)
+                          }
+                          onChange={(inputEvent) =>
+                            setDraft((current) => ({
+                              ...current,
+                              fieldValues: {
+                                ...current.fieldValues,
+                                [field.id]: inputEvent.target.value,
+                              },
+                            }))
+                          }
+                        />
+                      )}
+                      {field.description && field.config.placeholder ? (
+                        <small>{field.description}</small>
+                      ) : null}
                     </label>
                   );
-                }
-                if (isFileField(field)) {
-                  const selectedCount = files.filter(
-                    (item) => item.formFieldId === field.id,
-                  ).length;
-                  const maxSize = field.maxFileSizeBytes ?? event.maxFileSizeBytes;
-                  return (
-                    <div className="artifact-file-field" key={field.id}>
-                      <div>
-                        <strong>
-                          {field.label}
-                          {field.required ? ' *' : ''}
-                        </strong>
-                        {field.description ? <p>{field.description}</p> : null}
-                      </div>
-                      <label className="file-picker">
-                        <UploadIcon />
-                        <strong>
-                          {selectedCount > 0 ? `Выбрано: ${selectedCount}` : 'Выбрать файлы'}
-                        </strong>
-                        <span>
-                          До {field.maxItems} шт. · до {formatBytes(maxSize)} каждый
-                        </span>
-                        <input
-                          type="file"
-                          multiple={field.maxItems > 1}
-                          accept={fieldAccept(field)}
-                          onChange={(inputEvent) => chooseFiles(inputEvent, field)}
-                          disabled={submitting || selectedCount >= field.maxItems}
-                        />
-                      </label>
-                    </div>
-                  );
-                }
-                const stringValue = typeof value === 'string' ? value : '';
-                return (
-                  <label key={field.id}>
-                    <span>
-                      {field.label}
-                      {field.required ? ' *' : ''}
-                    </span>
-                    {field.kind === 'text' && (field.config.maxLength ?? 0) > 500 ? (
-                      <textarea
-                        value={stringValue}
-                        required={field.required}
-                        minLength={field.config.minLength}
-                        maxLength={field.config.maxLength}
-                        rows={4}
-                        placeholder={field.config.placeholder ?? field.description ?? undefined}
-                        onChange={(inputEvent) =>
-                          setDraft((current) => ({
-                            ...current,
-                            fieldValues: {
-                              ...current.fieldValues,
-                              [field.id]: inputEvent.target.value,
-                            },
-                          }))
-                        }
-                      />
-                    ) : (
-                      <input
-                        type={field.kind === 'link' ? 'url' : 'text'}
-                        value={stringValue}
-                        required={field.required}
-                        minLength={field.config.minLength}
-                        maxLength={field.config.maxLength}
-                        placeholder={
-                          field.config.placeholder ??
-                          field.description ??
-                          (field.kind === 'link' ? 'https://' : undefined)
-                        }
-                        onChange={(inputEvent) =>
-                          setDraft((current) => ({
-                            ...current,
-                            fieldValues: {
-                              ...current.fieldValues,
-                              [field.id]: inputEvent.target.value,
-                            },
-                          }))
-                        }
-                      />
-                    )}
-                    {field.description && field.config.placeholder ? (
-                      <small>{field.description}</small>
-                    ) : null}
-                  </label>
-                );
-              })}
-            </div>
-          ) : null}
-          {!artifactForm && !formLoading ? (
-            <>
-              <label>
-                <span>Название</span>
-                <input
-                  value={draft.title}
-                  onChange={(inputEvent) =>
-                    setDraft((current) => ({ ...current, title: inputEvent.target.value }))
-                  }
-                  maxLength={300}
-                  placeholder="Например, презентация команды"
-                />
-              </label>
-              <label>
-                <span>Текст или описание</span>
-                <textarea
-                  value={draft.text}
-                  onChange={(inputEvent) =>
-                    setDraft((current) => ({ ...current, text: inputEvent.target.value }))
-                  }
-                  maxLength={50_000}
-                  rows={4}
-                  placeholder="Что важно знать об этих материалах?"
-                />
-              </label>
-              <label>
-                <span>Ссылка</span>
-                <span className="input-with-icon">
-                  <LinkIcon />
-                  <input
-                    type="url"
-                    value={draft.link}
-                    onChange={(inputEvent) =>
-                      setDraft((current) => ({ ...current, link: inputEvent.target.value }))
-                    }
-                    maxLength={2_000}
-                    placeholder="https://"
-                  />
-                </span>
-              </label>
-
-              <label className="file-picker">
-                <UploadIcon />
-                <strong>Выбрать файлы</strong>
-                <span>До {formatBytes(event.maxFileSizeBytes)} каждый</span>
-                <input type="file" multiple onChange={chooseFiles} disabled={submitting} />
-              </label>
-            </>
-          ) : null}
-
-          {files.length > 0 ? (
-            <div className="selected-files">
-              {files.map((selected) => (
-                <Card className="selected-file" key={selected.id}>
-                  <FilesIcon />
-                  <div>
-                    <strong title={selected.file.name}>{selected.file.name}</strong>
-                    <span>
-                      {formatBytes(selected.file.size)}
-                      {selected.formFieldId && artifactForm
-                        ? ` · ${artifactForm.fields.find((field) => field.id === selected.formFieldId)?.label ?? 'Поле формы'}`
-                        : ''}
-                      {selected.status === 'done' ? ' · загружен' : ''}
-                    </span>
-                    {selected.status === 'uploading' || selected.status === 'done' ? (
-                      <div
-                        className="progress-track"
-                        aria-label={`Загружено ${selected.progress}%`}
-                      >
-                        <m.span
-                          initial={false}
-                          animate={{ width: `${selected.progress}%` }}
-                          transition={{ type: 'spring', stiffness: 160, damping: 28 }}
-                        />
-                      </div>
-                    ) : null}
-                    {selected.error ? <small className="error-text">{selected.error}</small> : null}
-                  </div>
-                  {!submitting ? (
-                    <button
-                      type="button"
-                      className="icon-button"
-                      aria-label={`Убрать ${selected.file.name}`}
-                      onClick={() =>
-                        setFiles((current) => current.filter((item) => item.id !== selected.id))
-                      }
-                    >
-                      <CloseIcon />
-                    </button>
-                  ) : null}
-                </Card>
-              ))}
-            </div>
-          ) : null}
-
-          {submitting ? (
-            <m.div
-              className="overall-progress"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-            >
-              <div>
-                <strong>Загружаем материалы</strong>
-                <span>{overallProgress}%</span>
+                })}
               </div>
-              <div className="progress-track">
-                <m.span
-                  initial={false}
-                  animate={{ width: `${overallProgress}%` }}
-                  transition={{ type: 'spring', stiffness: 150, damping: 26 }}
-                />
-              </div>
-            </m.div>
-          ) : null}
-          {error ? <div className="notice error">{error}</div> : null}
-          <div className="sheet-actions">
-            {submitting ? (
-              <Button type="button" className="secondary-button" onClick={() => void cancel()}>
-                Отменить
-              </Button>
             ) : null}
-            <Button className="primary-button" type="submit" disabled={submitting}>
-              {submitting
-                ? 'Отправляем…'
-                : (artifactForm?.submitButtonLabel ?? 'Отправить материалы')}
-            </Button>
-          </div>
-        </form>
+            {!artifactForm && !formLoading ? (
+              <>
+                <label>
+                  <span>Название</span>
+                  <input
+                    value={draft.title}
+                    onChange={(inputEvent) =>
+                      setDraft((current) => ({ ...current, title: inputEvent.target.value }))
+                    }
+                    maxLength={300}
+                    placeholder="Например, презентация команды"
+                  />
+                </label>
+                <label>
+                  <span>Текст или описание</span>
+                  <textarea
+                    value={draft.text}
+                    onChange={(inputEvent) =>
+                      setDraft((current) => ({ ...current, text: inputEvent.target.value }))
+                    }
+                    maxLength={50_000}
+                    rows={4}
+                    placeholder="Что важно знать об этих материалах?"
+                  />
+                </label>
+                <label>
+                  <span>Ссылка</span>
+                  <span className="input-with-icon">
+                    <LinkIcon />
+                    <input
+                      type="url"
+                      value={draft.link}
+                      onChange={(inputEvent) =>
+                        setDraft((current) => ({ ...current, link: inputEvent.target.value }))
+                      }
+                      maxLength={2_000}
+                      placeholder="https://"
+                    />
+                  </span>
+                </label>
+
+                <label className="file-picker">
+                  <UploadIcon />
+                  <strong>Выбрать файлы</strong>
+                  <span>До {formatBytes(event.maxFileSizeBytes)} каждый</span>
+                  <input type="file" multiple onChange={chooseFiles} disabled={submitting} />
+                </label>
+              </>
+            ) : null}
+
+            {files.length > 0 ? (
+              <div className="selected-files">
+                {files.map((selected) => (
+                  <Card className="selected-file" key={selected.id}>
+                    <FilesIcon />
+                    <div>
+                      <strong title={selected.file.name}>{selected.file.name}</strong>
+                      <span>
+                        {formatBytes(selected.file.size)}
+                        {selected.formFieldId && artifactForm
+                          ? ` · ${artifactForm.fields.find((field) => field.id === selected.formFieldId)?.label ?? 'Поле формы'}`
+                          : ''}
+                        {selected.status === 'done' ? ' · загружен' : ''}
+                      </span>
+                      {selected.status === 'uploading' || selected.status === 'done' ? (
+                        <div
+                          className="progress-track"
+                          aria-label={`Загружено ${selected.progress}%`}
+                        >
+                          <m.span
+                            initial={false}
+                            animate={{ width: `${selected.progress}%` }}
+                            transition={{ type: 'spring', stiffness: 160, damping: 28 }}
+                          />
+                        </div>
+                      ) : null}
+                      {selected.error ? (
+                        <small className="error-text">{selected.error}</small>
+                      ) : null}
+                    </div>
+                    {!submitting ? (
+                      <button
+                        type="button"
+                        className="icon-button"
+                        aria-label={`Убрать ${selected.file.name}`}
+                        onClick={() =>
+                          setFiles((current) => current.filter((item) => item.id !== selected.id))
+                        }
+                      >
+                        <CloseIcon />
+                      </button>
+                    ) : null}
+                  </Card>
+                ))}
+              </div>
+            ) : null}
+
+            {submitting ? (
+              <m.div
+                className="overall-progress"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+              >
+                <div>
+                  <strong>Загружаем материалы</strong>
+                  <span>{overallProgress}%</span>
+                </div>
+                <div className="progress-track">
+                  <m.span
+                    initial={false}
+                    animate={{ width: `${overallProgress}%` }}
+                    transition={{ type: 'spring', stiffness: 150, damping: 26 }}
+                  />
+                </div>
+              </m.div>
+            ) : null}
+            {error ? <div className="notice error">{error}</div> : null}
+            <div className="sheet-actions">
+              {submitting ? (
+                <Button type="button" className="secondary-button" onClick={() => void cancel()}>
+                  Отменить
+                </Button>
+              ) : null}
+              <Button className="primary-button" type="submit" disabled={submitting}>
+                {submitting
+                  ? 'Отправляем…'
+                  : (artifactForm?.submitButtonLabel ?? 'Отправить материалы')}
+              </Button>
+            </div>
+          </form>
+        </div>
       </m.section>
     </m.div>
   );

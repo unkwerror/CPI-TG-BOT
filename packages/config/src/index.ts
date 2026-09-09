@@ -230,6 +230,7 @@ export const workerEnvironmentSchema = z
     WORKER_HEALTH_HOST: z.string().default('0.0.0.0'),
     WORKER_HEALTH_PORT: integer(3003, 1),
     TELEGRAM_BOT_TOKEN: z.string().optional(),
+    TELEGRAM_CATALYST_CHAT_ID: optionalTelegramChatId,
     WEB_ORIGIN: z.url(),
     CLAMAV_HOST: z.string().optional(),
     CLAMAV_PORT: integer(3310, 1),

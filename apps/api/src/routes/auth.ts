@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import {
   isCrmReadyFullName,
   maxAuthSchema,
@@ -60,6 +60,7 @@ async function upsertMessengerIdentity(
       languageCode: profile.languageCode,
       avatarUrl: profile.avatarUrl,
       canMessage: true,
+      firstAppOpenedAt: now,
       lastSeenAt: now,
       updatedAt: now,
     })
@@ -72,6 +73,7 @@ async function upsertMessengerIdentity(
         languageCode: profile.languageCode,
         avatarUrl: profile.avatarUrl,
         canMessage: true,
+        firstAppOpenedAt: sql`coalesce(${userMessengerIdentities.firstAppOpenedAt}, ${now})`,
         lastSeenAt: now,
         updatedAt: now,
       },

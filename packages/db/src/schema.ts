@@ -216,6 +216,8 @@ export const userMessengerIdentities = pgTable(
     languageCode: text('language_code'),
     avatarUrl: text('avatar_url'),
     canMessage: boolean('can_message').notNull().default(true),
+    firstBotStartedAt: timestamp('first_bot_started_at', { withTimezone: true }),
+    firstAppOpenedAt: timestamp('first_app_opened_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
@@ -637,9 +639,8 @@ export const exportJobs = pgTable(
   'export_jobs',
   {
     id: uuid('id').defaultRandom().primaryKey(),
-    eventId: uuid('event_id')
-      .notNull()
-      .references(() => events.id, { onDelete: 'restrict' }),
+    eventId: uuid('event_id').references(() => events.id, { onDelete: 'restrict' }),
+    scope: text('scope').$type<'event' | 'quick_answers' | 'users'>().notNull().default('event'),
     requestedBy: uuid('requested_by')
       .notNull()
       .references(() => users.id, { onDelete: 'restrict' }),
@@ -658,6 +659,29 @@ export const exportJobs = pgTable(
   (table) => [
     index('export_jobs_event_created_idx').on(table.eventId, table.createdAt),
     index('export_jobs_status_idx').on(table.status),
+    check(
+      'export_jobs_scope_check',
+      sql`(${table.scope} IN ('event', 'quick_answers') AND ${table.eventId} IS NOT NULL) OR (${table.scope} = 'users' AND ${table.eventId} IS NULL AND ${table.kind} = 'xlsx')`,
+    ),
+  ],
+);
+
+export const eventQuickAnswers = pgTable(
+  'event_quick_answers',
+  {
+    eventId: uuid('event_id')
+      .notNull()
+      .references(() => events.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    fullName: text('full_name').notNull(),
+    answer: text('answer').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.eventId, table.userId] }),
+    check('event_quick_answers_text_check', sql`length(trim(${table.answer})) BETWEEN 1 AND 10000`),
   ],
 );
 
