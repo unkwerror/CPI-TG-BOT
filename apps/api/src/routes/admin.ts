@@ -29,6 +29,7 @@ import {
 } from '@cpi/db';
 import {
   AppError,
+  adminEventListQuerySchema,
   artifactStatuses,
   eventShortCodeFromTitle,
   eventSlugFromTitle,
@@ -40,6 +41,7 @@ import {
   parseCursorPagination,
 } from '@cpi/shared';
 import { writeAudit } from '../audit';
+import { listAdminEvents } from '../admin-event-list';
 import {
   serializeArtifact,
   serializeEvent,
@@ -294,26 +296,9 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     '/admin/events',
     { preHandler: readGuards, schema: { tags: ['admin', 'events'] } },
     async (request) => {
-      const query = paginationQuerySchema.parse(request.query);
-      const conditions = [isNull(events.deletedAt)];
-      if (query.q) {
-        conditions.push(
-          or(
-            ilike(events.title, `%${query.q}%`),
-            ilike(events.shortCode, `%${query.q}%`),
-            ilike(events.organizer, `%${query.q}%`),
-          )!,
-        );
-      }
-      if (query.cursor) conditions.push(gt(events.id, query.cursor));
-      const rows = await app.db
-        .select()
-        .from(events)
-        .where(and(...conditions))
-        .orderBy(desc(events.createdAt), asc(events.id))
-        .limit(query.limit + 1);
-      const page = parseCursorPagination(rows, query.limit);
-      return { items: page.items.map(serializeEvent), nextCursor: page.nextCursor };
+      const query = adminEventListQuerySchema.parse(request.query);
+      const page = await listAdminEvents(app.db, query);
+      return { ...page, items: page.items.map(serializeEvent) };
     },
   );
 

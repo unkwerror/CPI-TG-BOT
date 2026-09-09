@@ -9,6 +9,8 @@ import {
   useState,
   type FormEvent,
   type ReactNode,
+  type Dispatch,
+  type SetStateAction,
 } from 'react';
 import { Button, Card, Spinner } from '@cpi/ui';
 import {
@@ -21,6 +23,11 @@ import {
 } from '@cpi/shared';
 import { api } from '../lib/api';
 import { adminBroadcastQueuedMessage, enqueueAdminBroadcast } from '../lib/admin-broadcast';
+import {
+  adminEventListPath,
+  defaultAdminEventFilters,
+  type AdminEventFilters,
+} from '../lib/admin-events';
 import { openExternalLink } from '../lib/messenger-adapter';
 import {
   NOVOSIBIRSK_LABEL,
@@ -33,7 +40,7 @@ import {
   toNovosibirskInput,
 } from '../lib/dates';
 import type { ArtifactItem, CurrentUser, EventItem, ExportJob } from '../lib/types';
-import { UserIcon } from './icons';
+import { CloseIcon, SearchIcon, UserIcon } from './icons';
 import { useSession } from './session-provider';
 import { AdminWalletSection, type WalletAdminSectionName } from './admin-wallet-sections';
 import { StartupStudioLogo } from './startup-studio-logo';
@@ -87,6 +94,7 @@ export function AdminApp() {
   const { user, loading, error } = useSession();
   const [tab, setTab] = useState<AdminTab>('dashboard');
   const [eventId, setEventId] = useState('');
+  const [eventFilters, setEventFilters] = useState<AdminEventFilters>(defaultAdminEventFilters);
 
   if (loading) {
     return (
@@ -192,6 +200,8 @@ export function AdminApp() {
         ) : null}
         {tab === 'events' ? (
           <EventManagement
+            filters={eventFilters}
+            onFiltersChange={setEventFilters}
             onChooseEvent={(id) => {
               setEventId(id);
               setTab('exports');
@@ -299,6 +309,20 @@ function Dashboard() {
 
 function EventSelect({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   const [events, setEvents] = useState<EventItem[]>([]);
+  const [selectedEvent, setSelectedEvent] = useState<EventItem | null>(null);
+  const selectedIsMissing = Boolean(value && !events.some((event) => event.id === value));
+  useEffect(() => {
+    if (!selectedIsMissing) return;
+    const controller = new AbortController();
+    void api<EventItem>(`/admin/events/${value}`, { signal: controller.signal })
+      .then((event) => {
+        if (!controller.signal.aborted) setSelectedEvent(event);
+      })
+      .catch(() => {
+        /* Keep the selected ID visible if its details cannot be loaded. */
+      });
+    return () => controller.abort();
+  }, [value, selectedIsMissing]);
   useEffect(() => {
     let active = true;
     void api<{ items: EventItem[] }>('/admin/events?limit=100')
@@ -319,6 +343,11 @@ function EventSelect({ value, onChange }: { value: string; onChange: (value: str
       aria-label="Мероприятие"
     >
       <option value="">Все мероприятия</option>
+      {selectedIsMissing ? (
+        <option value={value}>
+          {selectedEvent?.id === value ? selectedEvent.title : 'Выбранное мероприятие'}
+        </option>
+      ) : null}
       {events.map((event) => (
         <option key={event.id} value={event.id}>
           {event.title}
@@ -442,13 +471,37 @@ function generatedEventIdentifiers(
 }
 
 function EventManagement({
+  filters,
+  onFiltersChange,
   onChooseEvent,
   onDeletedEvent,
 }: {
+  filters: AdminEventFilters;
+  onFiltersChange: Dispatch<SetStateAction<AdminEventFilters>>;
   onChooseEvent: (id: string) => void;
   onDeletedEvent: (id: string) => void;
 }) {
-  const [events, setEvents] = useState<EventItem[]>([]);
+  const [listing, setListing] = useState<{
+    key: string;
+    items: EventItem[];
+    total: number;
+    pageCount: number;
+    error: string | null;
+  }>({ key: '', items: [], total: 0, pageCount: 1, error: null });
+  const [refreshing, setRefreshing] = useState(false);
+  const [reloadVersion, setReloadVersion] = useState(0);
+  const listRequestRef = useRef<AbortController | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const listTopRef = useRef<HTMLDivElement | null>(null);
+  const requestPath = adminEventListPath(filters);
+  const events = listing.items;
+  const loadingList = refreshing || listing.key !== requestPath;
+  const filtersActive = Boolean(
+    filters.q ||
+    filters.status ||
+    filters.period !== 'all' ||
+    filters.sort !== defaultAdminEventFilters.sort,
+  );
   const [editing, setEditing] = useState<EventItem | null>(null);
   const [deleteCandidate, setDeleteCandidate] = useState<EventItem | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -461,10 +514,62 @@ function EventManagement({
   const [broadcastCandidate, setBroadcastCandidate] = useState<EventItem | null>(null);
 
   const load = useCallback(async () => {
-    const result = await api<{ items: EventItem[] }>('/admin/events?limit=100');
-    setEvents(result.items);
-  }, []);
-  useEffect(() => void load(), [load]);
+    listRequestRef.current?.abort();
+    const controller = new AbortController();
+    listRequestRef.current = controller;
+    setRefreshing(true);
+    try {
+      const result = await api<{
+        items: EventItem[];
+        total: number;
+        page: number;
+        pageCount: number;
+      }>(requestPath, { signal: controller.signal });
+      if (controller.signal.aborted) return;
+      if (result.page > result.pageCount) {
+        onFiltersChange((current) =>
+          adminEventListPath(current) === requestPath
+            ? { ...current, page: result.pageCount }
+            : current,
+        );
+        return;
+      }
+      setListing({ ...result, key: requestPath, error: null });
+    } catch (caught) {
+      if (controller.signal.aborted) return;
+      setListing({
+        key: requestPath,
+        items: [],
+        total: 0,
+        pageCount: 1,
+        error: caught instanceof Error ? caught.message : 'Не удалось загрузить мероприятия',
+      });
+    } finally {
+      if (!controller.signal.aborted) setRefreshing(false);
+    }
+  }, [requestPath, onFiltersChange]);
+  useEffect(() => {
+    // One request after typing pauses; outdated responses cannot replace a new search.
+    const timer = setTimeout(() => void load(), 250);
+    return () => {
+      clearTimeout(timer);
+      listRequestRef.current?.abort();
+    };
+  }, [load, reloadVersion]);
+
+  const changeFilters = (patch: Partial<Omit<AdminEventFilters, 'page'>>) => {
+    onFiltersChange((current) => ({ ...current, ...patch, page: 1 }));
+    setDeleteCandidate(null);
+  };
+  const resetFilters = () => {
+    onFiltersChange(defaultAdminEventFilters);
+    setDeleteCandidate(null);
+  };
+  const changePage = (page: number) => {
+    onFiltersChange((current) => ({ ...current, page }));
+    setDeleteCandidate(null);
+    listTopRef.current?.scrollIntoView({ block: 'start' });
+  };
 
   const update = <K extends keyof EventFormState>(key: K, value: EventFormState[K]) =>
     setForm((current) => ({ ...current, [key]: value }));
@@ -571,7 +676,6 @@ function EventManagement({
       setShowForm(false);
       setForm(blankEvent());
       onChooseEvent(saved.id);
-      await load();
     } catch (caught) {
       setMessage(caught instanceof Error ? caught.message : 'Не удалось сохранить мероприятие');
     } finally {
@@ -589,7 +693,7 @@ function EventManagement({
       onDeletedEvent(deleteCandidate.id);
       setDeleteCandidate(null);
       setMessage('Мероприятие и все его файлы удалены');
-      await load();
+      setReloadVersion((current) => current + 1);
     } catch (caught) {
       setMessage(caught instanceof Error ? caught.message : 'Не удалось удалить мероприятие');
     } finally {
@@ -863,8 +967,8 @@ function EventManagement({
           onConfirm={() => void broadcast(broadcastCandidate)}
         />
       ) : null}
-      <div className="admin-toolbar">
-        <p>{events.length} мероприятий</p>
+      <div className="admin-toolbar" ref={listTopRef}>
+        <p>Найдите событие по названию, коду или организатору.</p>
         <Button
           className="primary-button compact-button"
           type="button"
@@ -878,6 +982,111 @@ function EventManagement({
           Создать мероприятие
         </Button>
       </div>
+      <Card className="admin-event-filters">
+        <div
+          className="admin-event-filter-fields"
+          role="search"
+          aria-label="Поиск и фильтры мероприятий"
+        >
+          <div className="admin-event-search-label">
+            <label htmlFor="admin-event-search">Поиск мероприятий</label>
+            <div className="admin-event-search-input">
+              <SearchIcon aria-hidden="true" />
+              <input
+                id="admin-event-search"
+                ref={searchInputRef}
+                type="search"
+                value={filters.q}
+                maxLength={200}
+                placeholder="Название, код, организатор, город или Leader-ID"
+                onChange={(event) => changeFilters({ q: event.target.value })}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') changeFilters({ q: '' });
+                }}
+              />
+              {filters.q ? (
+                <button
+                  type="button"
+                  aria-label="Очистить поиск"
+                  onClick={() => {
+                    changeFilters({ q: '' });
+                    searchInputRef.current?.focus();
+                  }}
+                >
+                  <CloseIcon aria-hidden="true" />
+                </button>
+              ) : null}
+            </div>
+          </div>
+          <label>
+            <span>Статус мероприятия</span>
+            <select
+              value={filters.status}
+              onChange={(event) =>
+                changeFilters({ status: event.target.value as AdminEventFilters['status'] })
+              }
+            >
+              <option value="">Все статусы</option>
+              <option value="draft">Черновик</option>
+              <option value="published">Опубликовано</option>
+              <option value="running">Идёт сейчас</option>
+              <option value="finished">Завершено</option>
+              <option value="archived">В архиве</option>
+            </select>
+          </label>
+          <label>
+            <span>Сортировка мероприятий</span>
+            <select
+              value={filters.sort}
+              onChange={(event) =>
+                changeFilters({ sort: event.target.value as AdminEventFilters['sort'] })
+              }
+            >
+              <option value="starts_desc">Дата: сначала поздние</option>
+              <option value="starts_asc">Дата: сначала ранние</option>
+              <option value="created_desc">Недавно добавленные</option>
+              <option value="title_asc">Название: А → Я</option>
+              <option value="title_desc">Название: Я → А</option>
+            </select>
+          </label>
+        </div>
+        <div className="admin-event-periods" role="group" aria-label="Период мероприятия">
+          {(
+            [
+              ['all', 'Все даты'],
+              ['upcoming', 'Предстоящие'],
+              ['ongoing', 'Идут сейчас'],
+              ['accepting', 'Приём открыт'],
+              ['past', 'Прошедшие'],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={filters.period === value}
+              onClick={() => changeFilters({ period: value })}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="admin-event-list-summary">
+          <p role="status" aria-live="polite">
+            {loadingList
+              ? 'Обновляем список…'
+              : listing.error
+                ? 'Список недоступен'
+                : listing.total > 0
+                  ? `Найдено: ${listing.total} · Показано ${(filters.page - 1) * 20 + 1}–${(filters.page - 1) * 20 + events.length}`
+                  : 'Найдено: 0'}
+          </p>
+          {filtersActive ? (
+            <button type="button" className="admin-event-reset" onClick={resetFilters}>
+              Сбросить фильтры
+            </button>
+          ) : null}
+        </div>
+      </Card>
       {message ? (
         <div className={`notice ${message.includes('удалены') ? 'success' : 'error'}`}>
           {message}
@@ -907,7 +1116,38 @@ function EventManagement({
           </div>
         </Card>
       ) : null}
-      <div className="admin-card-grid">
+      {!loadingList && listing.error ? (
+        <Card className="admin-event-empty" role="alert">
+          <h2>Не удалось загрузить мероприятия</h2>
+          <p>{listing.error}</p>
+          <Button onClick={() => setReloadVersion((current) => current + 1)}>
+            Повторить загрузку
+          </Button>
+        </Card>
+      ) : null}
+      {loadingList && events.length === 0 ? (
+        <div className="admin-event-empty">
+          <Spinner label="Загружаем мероприятия" />
+        </div>
+      ) : null}
+      {!loadingList && !listing.error && events.length === 0 ? (
+        <Card className="admin-event-empty">
+          <SearchIcon aria-hidden="true" />
+          <h2>{filtersActive ? 'Мероприятия не найдены' : 'Мероприятий пока нет'}</h2>
+          <p>
+            {filtersActive
+              ? 'Измените поисковый запрос или сбросьте фильтры.'
+              : 'Создайте первое мероприятие, чтобы начать приём материалов.'}
+          </p>
+          {filtersActive ? <Button onClick={resetFilters}>Показать все мероприятия</Button> : null}
+        </Card>
+      ) : null}
+      <div
+        className="admin-card-grid admin-event-results"
+        aria-label="Список мероприятий"
+        aria-busy={loadingList}
+        inert={loadingList}
+      >
         {events.map((event) => (
           <Card className="admin-event-card" key={event.id}>
             <div>
@@ -919,6 +1159,7 @@ function EventManagement({
             <p>
               {formatNovosibirskDateTime(event.startsAt)} · {event.city || event.format}
             </p>
+            <p className="admin-event-organizer">{event.organizer}</p>
             <div className="row-actions">
               <Button
                 className="primary-button compact-button"
@@ -960,6 +1201,25 @@ function EventManagement({
           </Card>
         ))}
       </div>
+      {!listing.error && listing.total > 0 ? (
+        <nav className="admin-event-pagination" aria-label="Страницы мероприятий">
+          <Button
+            disabled={loadingList || filters.page <= 1}
+            onClick={() => changePage(filters.page - 1)}
+          >
+            Назад
+          </Button>
+          <span>
+            Страница <strong>{filters.page}</strong> из {listing.pageCount}
+          </span>
+          <Button
+            disabled={loadingList || filters.page >= listing.pageCount}
+            onClick={() => changePage(filters.page + 1)}
+          >
+            Далее
+          </Button>
+        </nav>
+      ) : null}
     </>
   );
 }

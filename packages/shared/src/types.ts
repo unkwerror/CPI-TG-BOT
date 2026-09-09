@@ -235,6 +235,28 @@ export const paginationQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 
+export const adminEventSorts = [
+  'created_desc',
+  'starts_desc',
+  'starts_asc',
+  'title_asc',
+  'title_desc',
+] as const;
+export const adminEventPeriods = ['all', 'upcoming', 'ongoing', 'accepting', 'past'] as const;
+export type AdminEventSort = (typeof adminEventSorts)[number];
+export type AdminEventPeriod = (typeof adminEventPeriods)[number];
+
+export const adminEventListQuerySchema = paginationQuerySchema
+  .extend({
+    status: z.enum(eventStatuses).optional(),
+    period: z.enum(adminEventPeriods).default('all'),
+    sort: z.enum(adminEventSorts).default('created_desc'),
+    page: z.coerce.number().int().min(1).max(100_000).optional(),
+  })
+  .refine((query) => !query.cursor || (query.page === undefined && query.sort === 'created_desc'), {
+    message: 'Для сортировки используйте номер страницы, без курсора',
+  });
+
 export interface ApiErrorBody {
   error: {
     code: string;
