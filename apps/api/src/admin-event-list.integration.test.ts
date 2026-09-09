@@ -226,6 +226,54 @@ describe.skipIf(!databaseUrl)('admin event search with PostgreSQL', () => {
     expect(collected).toEqual(rows.map((row) => row.id));
   });
 
+  it('preserves PostgreSQL microseconds and ID ties at cursor page boundaries', async () => {
+    const precisionMarker = `${marker} Microsecond`;
+    const preciseRows = await Promise.all(
+      Array.from({ length: 4 }, () => fixture({ title: precisionMarker })),
+    );
+    const timestamps = [
+      '2026-09-09T12:00:00.123456Z',
+      '2026-09-09T12:00:00.123456Z',
+      '2026-09-09T12:00:00.123455Z',
+      '2026-09-09T12:00:00.122999Z',
+    ];
+    for (const [index, row] of preciseRows.entries()) {
+      await pool.query('update events set created_at=$1::timestamptz where id=$2::uuid', [
+        timestamps[index],
+        row.id,
+      ]);
+    }
+    const expected = [
+      ...preciseRows
+        .slice(0, 2)
+        .map((row) => row.id)
+        .sort(),
+      preciseRows[2]!.id,
+      preciseRows[3]!.id,
+    ];
+    for (const limit of [1, 2]) {
+      let cursor: string | undefined;
+      const collected: string[] = [];
+      do {
+        const result = await listAdminEvents(
+          db,
+          adminEventListQuerySchema.parse({ q: precisionMarker, limit, cursor }),
+          now,
+        );
+        collected.push(...result.items.map((row) => row.id));
+        cursor = result.nextCursor ?? undefined;
+      } while (cursor && collected.length < 10);
+      expect(collected).toEqual(expected);
+    }
+    expect(
+      await listAdminEvents(
+        db,
+        adminEventListQuerySchema.parse({ q: precisionMarker, cursor: randomUUID() }),
+        now,
+      ),
+    ).toEqual({ items: [], nextCursor: null });
+  });
+
   it('returns an empty result with a valid page count for no matches and an out-of-range page', async () => {
     expect(await listAdminEvents(db, query({ q: `${marker} Missing` }), now)).toMatchObject({
       items: [],

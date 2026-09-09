@@ -89,16 +89,13 @@ export async function listAdminEvents(db: Database, query: AdminEventListQuery, 
 
   // Preserve cursor clients, using both fields from the actual stable sort.
   if (query.cursor) {
-    const [cursor] = await db
-      .select({ createdAt: events.createdAt })
-      .from(events)
-      .where(eq(events.id, query.cursor))
-      .limit(1);
-    if (!cursor) return { items: [], nextCursor: null };
+    // Keep the boundary in PostgreSQL: converting timestamptz to a JavaScript Date
+    // truncates microseconds and skips rows created within the same millisecond.
+    const cursorCreatedAt = sql`(select ${events.createdAt} from ${events} where ${events.id} = ${query.cursor}::uuid)`;
     conditions.push(
       or(
-        lt(events.createdAt, cursor.createdAt),
-        and(eq(events.createdAt, cursor.createdAt), gt(events.id, query.cursor)),
+        lt(events.createdAt, cursorCreatedAt),
+        and(eq(events.createdAt, cursorCreatedAt), gt(events.id, query.cursor)),
       )!,
     );
   }
